@@ -2,7 +2,11 @@
 name = "Arcella"
 version = "0.1.0"
 authors = ["Alexey Rybakov"]
-edition = "2018"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/rybakov-an/arcella"
 
 [dependencies]
-structopt = "0.3"
+wasmtime = "37"
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
