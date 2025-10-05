@@ -4,13 +4,15 @@ version = "0.1.0"
 authors = ["Alexey Rybakov"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/rybakov-an/arcella"
+repository = "https://github.com/ArcellaTeam/arcella"
 
 [dependencies]
 wasmtime = "37"
+wasmtime-wasi = "37"
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
-wat = "1.239.0"
+wat = "1.239"
+dirs = "6"
 
 [[test]]
 name = "integration_tests"

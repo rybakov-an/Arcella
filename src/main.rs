@@ -1,10 +1,9 @@
-use std::{
-    path::PathBuf,
-    fs::File,
-};
-use anyhow::{anyhow,Result};
+use std::path::PathBuf;
+use anyhow::{anyhow, Context, Result};
 use clap::Parser;
-use wasmtime;
+use wasmtime::*;
+use wasmtime_wasi::WasiCtxBuilder;
+use wasmtime_wasi::p1;
 use wat;
 
 /// Arcella: Modular WebAssembly Runtime
@@ -24,54 +23,32 @@ struct EngineState {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Проверка существования файла
-    if !cli.module.exists() {
-        return Err(anyhow!("File {} does not exist", cli.module.display()));
-    }
-
     // Можно добавить кастомную конфигурацию
-    let mut config = wasmtime::Config::default();
-    config.wasm_backtrace_details(wasmtime::WasmBacktraceDetails::Enable);
-    let engine = wasmtime::Engine::new(&config)?;
+    let mut config = Config::default();
+    config.wasm_backtrace_details(WasmBacktraceDetails::Enable);
+    config.wasm_multi_memory(false);
+    config.wasm_threads(false);
+    config.consume_fuel(true);
+    let engine = Engine::new(&config)?;
 
-    // Определяем, как получить байты модуля
-    let module_bytes: Vec<u8> = if cli.module
-        .extension()
-        .map_or(false, |ext| ext.eq_ignore_ascii_case("wat"))
-    {
-        // Это .wat файл - парсим его
-        let wat_content = std::fs::read_to_string(&cli.module)
-            .map_err(|e| anyhow!("Failed to read .wat file: {}", e))?;
+    let module_bytes = load_module_bytes(&cli.module)?;
 
-        wat::parse_str(&wat_content)
-            .map_err(|e| anyhow!("Failed to parse .wat: {}", e))?
-    } else {
-        // Обычный .wasm файл
-        std::fs::read(&cli.module)
-            .map_err(|e| anyhow!("Failed to read module file: {}", e))?
-    };
+    let module = Module::from_binary(&engine, &module_bytes)
+        .map_err(|e| anyhow!("Failed to compile module: {}", e))?;
 
+    let mut wasi_ctx = WasiCtxBuilder::new()
+        .inherit_stderr()
+        .inherit_stdout()
+        .build_p1();
 
-    let module = wasmtime::Module::new(&engine, &module_bytes)
-        .map_err(|e| anyhow!("Failed to create module: {}", e))?;
+    let mut store = Store::new(&engine, wasi_ctx);
+    let _ = store.set_fuel(1_000_000);
 
-    let mut store = wasmtime::Store::new(
-        &engine,
-        EngineState {
-            name: "hello, world!".to_string(),
-            count: 0,
-        },
-    );
+    let mut linker: Linker<p1::WasiP1Ctx> = Linker::new(&engine);
+    p1::add_to_linker_sync(&mut linker, |t| t)?;
 
-    let imports = [];
-    
-    let instance = wasmtime::Instance::new(&mut store, &module, &imports)?;
-    
-    {
-        let exports = instance.exports(&mut store);
-        //println!("Exported functions: {:?}", exports);
-    }
-
+    let instance = linker.instantiate(&mut store, &module)?;
+    linker.instance(&mut store, "add_func", instance)?;
 
     let add = instance.get_typed_func::<(i32, i32), (i32)>(&mut store, "add")
         .map_err(|e| anyhow!("Failed to get 'add' function: {}", e))?;
@@ -82,9 +59,29 @@ fn main() -> Result<()> {
         }
     }
     
-    let state = store.data_mut();
-    state.count += 1;
-    println!("Engine state count: {}", state.count);
-
     Ok(())
+}
+
+fn load_module_bytes(path: &PathBuf) -> Result<Vec<u8>> {
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .ok_or_else(|| anyhow::anyhow!("Unsupported file type: {}. Only .wat and .wasm are supported.", path.display()))?;
+
+    match extension {
+        "wat" => {
+            let wat_content = std::fs::read_to_string(path)
+                .with_context(|| format!("Failed to read .wat file: '{}'", path.display()))?;
+            wat::parse_str(&wat_content)
+                .with_context(|| format!("Failed to parse .wat file: '{}'", path.display()))
+        }
+        "wasm" => {
+            std::fs::read(path)
+                .with_context(|| format!("Failed to read .wasm file: '{}'", path.display()))
+        }
+        _ => Err(anyhow::anyhow!(
+            "Unsupported file type: '{}'. Only .wat and .wasm are supported.",
+            path.display()
+        )),
+    }
 }
