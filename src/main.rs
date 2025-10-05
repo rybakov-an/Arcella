@@ -1,57 +1,90 @@
 use std::{
     path::PathBuf,
+    fs::File,
 };
-use anyhow::{Context, Result};
+use anyhow::{anyhow,Result};
 use clap::Parser;
+use wasmtime;
+use wat;
 
 /// Arcella: Modular WebAssembly Runtime
-#[derive(Parser)]
-#[command(version, about)]
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
 struct Cli {
     /// Path to the WebAssembly module (.wasm file)
     #[arg(value_name = "MODULE", value_parser)]
     module: PathBuf,
 }
 
+struct EngineState {
+    name: String,
+    count: usize,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Читаем WASM-файл
-    let wasm_bytes = std::fs::read(&cli.module)
-        .with_context(|| format!("failed to read module: {}", cli.module.display()))?;
+    // Проверка существования файла
+    if !cli.module.exists() {
+        return Err(anyhow!("File {} does not exist", cli.module.display()));
+    }
 
-    // Создаём WASI-контекст
-    let wasi_ctx = wasmtime::wasi::WasiCtxBuilder::new()
-        .inherit_stdio()   // stdout/stderr → терминал
-        .inherit_args()?   // передаём аргументы (пусто, но безопасно)
-        .build();
+    // Можно добавить кастомную конфигурацию
+    let mut config = wasmtime::Config::default();
+    config.wasm_backtrace_details(wasmtime::WasmBacktraceDetails::Enable);
+    let engine = wasmtime::Engine::new(&config)?;
 
-    // Движок и Store с WASI-контекстом
-    let engine = wasmtime::Engine::default();
-    let mut store = wasmtime::Store::new(&engine, wasi_ctx);
+    // Определяем, как получить байты модуля
+    let module_bytes: Vec<u8> = if cli.module
+        .extension()
+        .map_or(false, |ext| ext.eq_ignore_ascii_case("wat"))
+    {
+        // Это .wat файл - парсим его
+        let wat_content = std::fs::read_to_string(&cli.module)
+            .map_err(|e| anyhow!("Failed to read .wat file: {}", e))?;
 
-    // Компилируем модуль
-    let module = wasmtime::Module::from_binary(&engine, &wasm_bytes)
-        .context("failed to compile WebAssembly module")?;
+        wat::parse_str(&wat_content)
+            .map_err(|e| anyhow!("Failed to parse .wat: {}", e))?
+    } else {
+        // Обычный .wasm файл
+        std::fs::read(&cli.module)
+            .map_err(|e| anyhow!("Failed to read module file: {}", e))?
+    };
 
-    // Линкер + WASI
-    let mut linker = wasmtime::Linker::new(&engine);
-    wasmtime::wasi::add_to_linker(&mut linker, |ctx: &mut wasmtime::wasi::WasiCtx| ctx)
-        .context("failed to add WASI to linker")?;
 
-    // Инстанцируем
-    let instance = linker
-        .instantiate(&mut store, &module)
-        .context("failed to instantiate module")?;
+    let module = wasmtime::Module::new(&engine, &module_bytes)
+        .map_err(|e| anyhow!("Failed to create module: {}", e))?;
 
-    // Вызываем _start — точка входа для WASI-приложений
-    let start = instance
-        .get_typed_func::<(), ()>(&mut store, "_start")
-        .map_err(|_| anyhow::anyhow!("module does not export _start function"))?;
+    let mut store = wasmtime::Store::new(
+        &engine,
+        EngineState {
+            name: "hello, world!".to_string(),
+            count: 0,
+        },
+    );
 
-    println!("Running module: {}", cli.module.display());
-    start.call(&mut store, ())?;
-    println!("Module finished successfully");
+    let imports = [];
+    
+    let instance = wasmtime::Instance::new(&mut store, &module, &imports)?;
+    
+    {
+        let exports = instance.exports(&mut store);
+        //println!("Exported functions: {:?}", exports);
+    }
+
+
+    let add = instance.get_typed_func::<(i32, i32), (i32)>(&mut store, "add")
+        .map_err(|e| anyhow!("Failed to get 'add' function: {}", e))?;
+    match add.call(&mut store, (2, 3)) {
+        Ok(result ) => println!("Result of add(2, 3): {}", result),
+        Err(e) => {
+            eprintln!("Error calling add: {}", e);
+        }
+    }
+    
+    let state = store.data_mut();
+    state.count += 1;
+    println!("Engine state count: {}", state.count);
 
     Ok(())
 }

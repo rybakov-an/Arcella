@@ -10,3 +10,7 @@ repository = "https://github.com/rybakov-an/arcella"
 wasmtime = "37"
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
+wat = "1.239.0"
+
+[[test]]
+name = "integration_tests"
