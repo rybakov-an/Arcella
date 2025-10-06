@@ -1,4 +1,6 @@
 use clap::Parser;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 //use wasmtime::*;
 //use wasmtime_wasi::{p1, WasiCtxBuilder};
 use wat;
@@ -22,10 +24,23 @@ struct Cli {}
 
 #[tokio::main]
 async fn main() -> ArcellaResult<()> {
-    
-    let _ = Cli::parse(); 
 
-    let _ = alme::start().await?;
+    // 1. Initialize logging (should be the first side effect)
+
+    // 2. Load configuration (e.g., paths, runtime options)
+    let _ = Cli::parse(); 
+    let config = Arc::new(config::load().await?);
+
+    // 3. Initialize core subsystems: storage and module cache
+    let storage = Arc::new(storage::StorageManager::new(&config).await?);
+    let cache = Arc::new(cache::ModuleCache::new(&config).await?);
+
+    let runtime = Arc::new(RwLock::new(
+        runtime::ArcellaRuntime::new(config.clone(), storage.clone(), cache.clone()).await?,
+    ));
+
+
+    let alme_handle = alme::start(runtime.clone()).await?;
 
     tokio::signal::ctrl_c().await?;
 
