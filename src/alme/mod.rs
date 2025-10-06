@@ -2,7 +2,7 @@ pub mod protocol;
 pub mod server;
 
 //use crate::runtime::ArcellaRuntime;
-//use crate::error::Result;
+use crate::error::{ArcellaError, Result as ArcellaResult};
 use std::sync::{Arc, RwLock};
 
 //pub use server::start;
@@ -14,6 +14,8 @@ use std::sync::{Arc, RwLock};
     server::spawn_server(sock_path, runtime)
 }*/
 
-pub fn start() {
-    server::spawn_server_standalone();
+pub async fn start() -> ArcellaResult<()>  {
+    
+    server::spawn_server_standalone().await
+
 }

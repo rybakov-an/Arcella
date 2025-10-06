@@ -1,8 +1,6 @@
-use std::path::PathBuf;
-use anyhow::{anyhow, Context, Result};
 use clap::Parser;
-use wasmtime::*;
-use wasmtime_wasi::{p1, WasiCtxBuilder};
+//use wasmtime::*;
+//use wasmtime_wasi::{p1, WasiCtxBuilder};
 use wat;
 
 mod cli;
@@ -15,21 +13,23 @@ mod manifest;
 mod error;
 mod log;
 
+use error::{ArcellaError, Result as ArcellaResult};
+
 /// Arcella: Modular WebAssembly Runtime
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
-struct Cli {
-    /// Path to the WebAssembly module (.wasm file)
-    #[arg(value_name = "MODULE", value_parser)]
-    module: PathBuf,
-}
+struct Cli {}
 
-fn main() -> Result<()> {
-    let cli = Cli::parse();
+#[tokio::main]
+async fn main() -> ArcellaResult<()> {
+    
+    let _ = Cli::parse(); 
 
-    alme::start();
+    let _ = alme::start().await?;
 
-    std::thread::sleep(std::time::Duration::from_secs(30));
+    tokio::signal::ctrl_c().await?;
+
+    println!("\nArcella shutting down...");
 
     // Configure the engine
     /*let mut config = Config::default();
@@ -78,11 +78,11 @@ fn main() -> Result<()> {
     
 }
 
-fn load_module_bytes(path: &PathBuf) -> Result<Vec<u8>> {
+/*fn load_module_bytes(path: &PathBuf) -> ArcellaResult<Vec<u8>> {
     let extension = path
         .extension()
         .and_then(|ext| ext.to_str())
-        .ok_or_else(|| anyhow::anyhow!("Unsupported file type: {}. Only .wat and .wasm are supported.", path.display()))?;
+        .ok_or_else(|| ArcellaError::InvalidModulePath(path.clone()))?;
 
     match extension {
         "wat" => {
@@ -100,4 +100,4 @@ fn load_module_bytes(path: &PathBuf) -> Result<Vec<u8>> {
             path.display()
         )),
     }
-}
+}*/

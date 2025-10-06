@@ -2,15 +2,14 @@ use std::fs;
 use std::path::PathBuf;
 use crate::alme::protocol::{AlmeRequest, AlmeResponse};
 //use crate::runtime::ArcellaRuntime;
-//use crate::error::Result;
-use anyhow::{Result};
+use crate::error::{ArcellaError, Result as ArcellaResult};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use tokio::net::UnixListener;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Returns the path to the ALME Unix socket: `~/.arcella/alme`
-pub fn get_alme_socket_path() -> Result<PathBuf> {
+pub fn get_alme_socket_path() -> ArcellaResult<PathBuf> {
     let base = dirs::home_dir()
         .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?
         .join(".arcella");
@@ -74,7 +73,7 @@ pub fn get_alme_socket_path() -> Result<PathBuf> {
 }*/
 
 /// Spawns the ALME server in a dedicated background thread (standalone mode, no runtime).
-pub fn spawn_server_standalone() -> Result<()> {
+pub async fn spawn_server_standalone() -> ArcellaResult<()> {
     let sock_path = get_alme_socket_path()?;
 
     if sock_path.exists() {
@@ -181,7 +180,7 @@ pub fn spawn_server_standalone() -> Result<()> {
 // Standalone handler (no runtime access)
 async fn handle_connection_standalone(
     mut stream: tokio::net::UnixStream,
-) -> Result<()> {
+) -> ArcellaResult<()> {
     let mut buffer = vec![0; 4096];
     let n = stream.read(&mut buffer).await?;
     if n == 0 {
@@ -232,7 +231,7 @@ async fn handle_connection_standalone(
 async fn send_response(
     stream: &mut tokio::net::UnixStream,
     response: &AlmeResponse,
-) -> Result<()> {
+) -> ArcellaResult<()> {
     let json = serde_json::to_string(response)?;
     stream.write_all(json.as_bytes()).await?;
     Ok(())
