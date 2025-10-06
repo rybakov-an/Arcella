@@ -27,8 +27,12 @@ struct Cli {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    alme::start();
+
+    std::thread::sleep(std::time::Duration::from_secs(30));
+
     // Configure the engine
-    let mut config = Config::default();
+    /*let mut config = Config::default();
     config.wasm_backtrace_details(WasmBacktraceDetails::Enable);
     config.wasm_multi_memory(false);
     config.wasm_threads(false);
@@ -68,7 +72,7 @@ fn main() -> Result<()> {
         Err(_) => {
             eprintln!("No default function found — nothing to run.");
         }
-    }
+    }*/
 
     Ok(())
     
