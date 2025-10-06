@@ -5,6 +5,16 @@ use wasmtime::*;
 use wasmtime_wasi::{p1, WasiCtxBuilder};
 use wat;
 
+mod cli;
+mod alme;
+mod runtime;
+mod config;
+mod storage;
+mod cache;
+mod manifest;
+mod error;
+mod log;
+
 /// Arcella: Modular WebAssembly Runtime
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
