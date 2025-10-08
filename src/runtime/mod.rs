@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
-use crate::{config, storage, cache};
+use crate::{storage, cache};
+use crate::config::ArcellaConfig;
 use crate::error::{ArcellaError, Result as ArcellaResult};
 
 pub struct ArcellaRuntime {
-    pub config: Arc<config::Config>,
+    pub config: Arc<ArcellaConfig>,
     pub storage: Arc<storage::StorageManager>,
     pub cache: Arc<cache::ModuleCache>,
     // Позже: modules, instances, engine и т.д.
@@ -12,7 +13,7 @@ pub struct ArcellaRuntime {
 
 impl ArcellaRuntime{
     pub async fn new(
-        config: Arc<config::Config>,
+        config: Arc<ArcellaConfig>,
         storage: Arc<storage::StorageManager>,
         cache: Arc<cache::ModuleCache>,
     ) -> ArcellaResult<Self> {
@@ -31,4 +32,18 @@ impl ArcellaRuntime{
     pub fn test(&self) -> ArcellaResult<String> {
         Ok("Runtime message".to_string())
     }
+
+    #[cfg(test)]
+    pub async fn new_for_tests(config: Arc<ArcellaConfig>) -> ArcellaResult<Self> {
+
+        let storage = Arc::new(storage::StorageManager::new(&config).await?);
+        let cache = Arc::new(cache::ModuleCache::new(&config).await?);
+
+        Ok(Self {
+            config,
+            storage,
+            cache,
+        })
+    }
+
 }

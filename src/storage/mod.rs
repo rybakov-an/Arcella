@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::path::PathBuf;
 
-use crate::{config};
+use crate::config::ArcellaConfig;
 use crate::error::{ArcellaError, Result as ArcellaResult};
 
 pub struct StorageManager {
@@ -13,7 +13,7 @@ pub struct StorageManager {
 
 impl StorageManager {
     pub async fn new(
-        config: &Arc<config::Config>,
+        config: &Arc<ArcellaConfig>,
     ) -> ArcellaResult<Self> {
         let manager = Self {
             base_dir: config.base_dir.clone(),

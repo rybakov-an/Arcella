@@ -4,7 +4,7 @@ use serde::Deserialize;
 use crate::error::{ArcellaError, Result as ArcellaResult};
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct Config {
+pub struct ArcellaConfig {
     pub base_dir: PathBuf,
     pub cfg_dir: PathBuf,
     pub modules_dir: PathBuf,
@@ -12,7 +12,7 @@ pub struct Config {
     pub sock_path: PathBuf,
 }
 
-impl Default for Config {
+impl Default for ArcellaConfig {
     fn default() -> Self {
         let base = dirs::home_dir().unwrap().join(".arcella");
         Self {
@@ -26,8 +26,8 @@ impl Default for Config {
 
 }
 
-pub async fn load() -> ArcellaResult<Config> {
+pub async fn load() -> ArcellaResult<ArcellaConfig> {
     // Пока просто возвращаем default
-    Ok(Config::default())
+    Ok(ArcellaConfig::default())
 }
 

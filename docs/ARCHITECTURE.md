@@ -131,7 +131,7 @@ arcella/
 ## ⚙️ Компоненты
 
 ### 1. **ALME (Arcella Local Management Extensions)**
-- Unix-сокет: `~/.arcella/alme.sock`
+- Unix-сокет: `~/.arcella/alme`
 - Принимает команды: `install`, `start`, `stop`, `list`, `status`
 - Возвращает JSON-RPC-подобные ответы
 - Единственная точка управления runtime’ом
