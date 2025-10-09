@@ -9,7 +9,7 @@ pub struct ArcellaConfig {
     pub cfg_dir: PathBuf,
     pub modules_dir: PathBuf,
     pub cache_dir: PathBuf,
-    pub sock_path: PathBuf,
+    pub socket_path: PathBuf,
 }
 
 impl Default for ArcellaConfig {
@@ -20,7 +20,7 @@ impl Default for ArcellaConfig {
             cfg_dir: base.join("config"),
             modules_dir: base.join("modules"),
             cache_dir: base.join("cache"),
-            sock_path: base.join("alme"),
+            socket_path: base.join("alme"),
         }
     }
 
