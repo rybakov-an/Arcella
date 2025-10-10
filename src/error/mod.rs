@@ -74,6 +74,10 @@ pub enum ArcellaError {
     #[error("Serialization error: {0}")]
     Serialization(String),
 
+    /// Runtime error.
+    #[error("Runtime error: {0}")]
+    RuntimeError(String),
+
 }
 
 /// Convenient alias for `Result<T, ArcellaError>`.

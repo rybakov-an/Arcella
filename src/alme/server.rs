@@ -9,9 +9,11 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::Arc;
+use time::OffsetDateTime;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, WriteHalf};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{RwLock, broadcast};
+use tokio::time::{timeout, Duration as TokioDuration};
 
 use crate::runtime::ArcellaRuntime;
 use crate::error::{ArcellaError, Result as ArcellaResult};
@@ -21,6 +23,8 @@ use crate::alme::protocol::{AlmeRequest, AlmeResponse};
 /// Maximum allowed length of an incoming ALME request in bytes.
 /// Requests exceeding this limit will be rejected to prevent resource exhaustion.
 static MAX_REQUEST_LENGTH: usize = 64 * 1024; // 64 KB
+
+static MAX_READER_TIMEOUT: u64 = 60; // seconds
 
 /// Spawns the ALME (Arcella Local Management Extensions) server as a background task.
 ///
@@ -170,12 +174,12 @@ async fn handle_connection(
         buffer.clear();
 
         let line = tokio::select! {
-            _n = reader.read_line(&mut buffer) => {
-                match _n {
-                    Ok(0) => {
+            reader_result = timeout(TokioDuration::from_secs(MAX_READER_TIMEOUT), reader.read_line(&mut buffer)) => {
+                match reader_result {
+                    Ok(Ok(0)) => {
                         break Ok(()); // EOF - client close connection
                     },
-                    Ok(n) => {
+                    Ok(Ok(n)) => {
                         if n > MAX_REQUEST_LENGTH {
                             let resp = AlmeResponse::error("Request too large");
                             send_response(&mut writer, &resp).await?;
@@ -187,14 +191,20 @@ async fn handle_connection(
                         }
                         trimmed.to_string()
                     },
-                    Err(e) => {
+                    Ok(Err(e)) => {
                         eprintln!("[ALME] Recieved error: {}", e);
                         return Err(ArcellaError::Io(e));
+                    },
+                    _ => {
+                        eprintln!("[ALME] Reader timeout");
+                        let _ = writer.shutdown().await;
+                        return Ok(());
                     }
                 }
             },
             _ = shutdown_rx.recv() => {
                 eprintln!("[ALME] Connection handler received shutdown signal");
+                let _ = writer.shutdown().await;
                 return Ok(());
             },
         };
@@ -219,9 +229,19 @@ async fn handle_connection(
             AlmeRequest::Status => {
                 let runtime_guard = runtime.read().await;
 
+                let runtime_status = runtime_guard.status()?;
+
+                let start_time: OffsetDateTime = runtime_status.start_time.into();
+                let start_time_rfc3339 = start_time.format(&time::format_description::well_known::Rfc3339).unwrap();
+
                 let data = serde_json::json!({
                     "version": env!("CARGO_PKG_VERSION"),
-                    "info": runtime_guard.test()?,
+                    "pid": runtime_status.pid,
+                    "start_time": format!("{}", start_time_rfc3339),
+                    "uptime": runtime_status.uptime.as_secs(),
+                    "socket_path": runtime_guard.config.socket_path.to_string_lossy(),
+                    "worker_groups": "",
+                    "modules": "",
                 });
 
                 AlmeResponse {
@@ -232,7 +252,7 @@ async fn handle_connection(
             },
             AlmeRequest::ListModules => AlmeResponse {
                 success: true,
-                message: "No modules (standalone mode)".to_string(),
+                message: "No modules".to_string(),
                 data: Some(serde_json::json!([])),
             },
         };
@@ -264,7 +284,7 @@ async fn send_response(
     json.push(b'\n');
     let _ = stream.write_all(&json).await.map_err(|e| {
         eprintln!("[ALME] Failed to send response: {}", e);
-        ArcellaError::Io(e);
+        ArcellaError::Io(e)
     });
     Ok(())
 }
