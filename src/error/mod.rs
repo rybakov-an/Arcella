@@ -1,10 +1,19 @@
+// Copyright (c) 2025 Arcella Team
+//
+// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE>
+// or the MIT license <LICENSE-MIT>, at your option.
+// This file may not be copied, modified, or distributed
+// except according to those terms.
+
 //! Centralized error handling for Arcella.
 //!
 //! Uses `thiserror` to define structured errors and `anyhow` for convenient propagation.
 //! All modules should return `Result<T, ArcellaError>` for internal logic,
 //! and `anyhow::Result<T>` (aliased as `Result<T>`) for top-level functions like `main`.
+//! 
 
 use thiserror::Error;
+use tokio::task::JoinError;
 
 /// The root error type for all Arcella-specific failures.
 #[derive(Error, Debug)]
@@ -52,6 +61,22 @@ pub enum ArcellaError {
     /// JSON serialization/deserialization error.
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error), 
+
+    /// Request is failed;
+    #[error("JRequest error: {0}")]
+    InvalidRequest(String),
+
+    /// Task join error.
+    #[error("Task join error: {0}")]
+    Join(#[from] JoinError),
+
+    /// Serialization error.
+    #[error("Serialization error: {0}")]
+    Serialization(String),
+
+    /// Runtime error.
+    #[error("Runtime error: {0}")]
+    RuntimeError(String),
 
 }
 

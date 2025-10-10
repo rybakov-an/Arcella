@@ -44,6 +44,9 @@ async fn main() -> ArcellaResult<()> {
 
     tokio::signal::ctrl_c().await?;
 
+    runtime.write().await.shutdown().await?;
+    alme_handle.shutdown().await?;
+
     println!("\nArcella shutting down...");
 
     // Configure the engine
