@@ -6,7 +6,8 @@
 // except according to those terms.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
+use time::OffsetDateTime;
 use tokio::sync::{RwLock, broadcast};
 
 use crate::{storage, cache};
@@ -16,12 +17,12 @@ use crate::error::{ArcellaError, Result as ArcellaResult};
 struct ArcellaRuntimeEnvironment {
     pub pid: u32,
     pub start_instant: Instant,
-    pub start_system: SystemTime,
+    pub start_utc: OffsetDateTime,
 }
 
 pub struct ArcellaRuntimeStatus {
     pub pid: u32,
-    pub start_time: SystemTime,
+    pub start_time: OffsetDateTime,
     pub uptime: Duration,
 }
 
@@ -44,7 +45,7 @@ impl ArcellaRuntime{
         let env = ArcellaRuntimeEnvironment {
             pid: std::process::id(),
             start_instant: Instant::now(),
-            start_system: SystemTime::now(),
+            start_utc: OffsetDateTime::now_utc(),
         };
 
         let runtime = Self {
@@ -68,7 +69,7 @@ impl ArcellaRuntime{
 
         return Ok(ArcellaRuntimeStatus {
             pid: env.pid,
-            start_time: env.start_system,
+            start_time: env.start_utc,
             uptime: self.uptime(),
         });
 

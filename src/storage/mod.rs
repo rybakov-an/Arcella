@@ -6,7 +6,7 @@ use crate::error::{ArcellaError, Result as ArcellaResult};
 
 pub struct StorageManager {
     pub base_dir: PathBuf,
-    pub cfg_dir: PathBuf,
+    pub config_dir: PathBuf,
     pub modules_dir: PathBuf,
     pub cache_dir: PathBuf,
 }
@@ -17,7 +17,7 @@ impl StorageManager {
     ) -> ArcellaResult<Self> {
         let manager = Self {
             base_dir: config.base_dir.clone(),
-            cfg_dir: config.cfg_dir.clone(),
+            config_dir: config.config_dir.clone(),
             modules_dir: config.modules_dir.clone(),
             cache_dir: config.cache_dir.clone(),
         };
@@ -39,8 +39,8 @@ impl StorageManager {
             }
         }
 
-        if !self.cfg_dir.exists() {
-            std::fs::create_dir_all(&self.cfg_dir)?;
+        if !self.config_dir.exists() {
+            std::fs::create_dir_all(&self.config_dir)?;
         }
 
         if !self.modules_dir.exists() {

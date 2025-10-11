@@ -60,12 +60,14 @@ pub async fn spawn_server(
 
     if socket_path.exists() {
         if let Err(e) = fs::remove_file(&socket_path) {
-            eprintln!("[ALME] Warning: failed to remove stale socket {:?}: {}", socket_path, e);
+            tracing::error!("Failed to remove stale socket {:?}: {}", socket_path, e);
         }
     }
 
     let listener = UnixListener::bind(&socket_path)?;
+    tracing::debug!("Bind ALME server to socket: {:?}", socket_path);
     fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600))?;
+    tracing::debug!("Set permissions on ALME socket: {:?}", socket_path);
 
     let (shutdown_tx, mut shutdown_rx) = broadcast::channel::<()>(1);
 
@@ -76,7 +78,7 @@ pub async fn spawn_server(
 
         // Remove socket on shutdown
         if let Err(e) = fs::remove_file(&socket_path_clone) {
-            eprintln!("[ALME] Failed to remove ALME socket {:?}: {}", socket_path_clone, e);
+            tracing::error!("Failed to remove ALME socket {:?}: {}", socket_path_clone, e);
         }
 
         result
@@ -108,28 +110,30 @@ async fn run_server_loop(
     runtime: Arc<RwLock<ArcellaRuntime>>,
     mut shutdown_rx: broadcast::Receiver<()>,
 ) -> ArcellaResult<()> {
+    tracing::info!("Starting ALME server listener");
 
     loop {
         tokio::select! {
             accept_result = listener.accept() => {
                 match accept_result {
-                    Ok((stream, _)) => {
+                    Ok((stream, _addr)) => {
+                        tracing::info!("Get new connection");
                         let rt = runtime.clone();
-                        let mut shutdown_rx_clone = shutdown_rx.resubscribe();
+                        let shutdown_rx_clone = shutdown_rx.resubscribe();
                         tokio::spawn(async move {
                             if let Err(e) = handle_connection(stream, rt, shutdown_rx_clone).await {
-                                eprintln!("[ALME] Connection handler error: {:?}", e);
+                                tracing::error!("Connection handler error: {:?}", e);
                             }
                         });
                     },
                     Err(e) => {
-                        eprintln!("[ALME] Listener accept error: {:?}", e);
+                        tracing::error!("Listener accept error: {:?}", e);
                         break;
                     }
                 }
             }
             _ = shutdown_rx.recv() => {
-                eprintln!("[ALME] Listener received shutdown signal");
+                tracing::debug!("Listener received shutdown signal");
                 break;
             }
         }
@@ -177,11 +181,14 @@ async fn handle_connection(
             reader_result = timeout(TokioDuration::from_secs(MAX_READER_TIMEOUT), reader.read_line(&mut buffer)) => {
                 match reader_result {
                     Ok(Ok(0)) => {
+                        tracing::trace!("Get EOF from client");
                         break Ok(()); // EOF - client close connection
                     },
                     Ok(Ok(n)) => {
                         if n > MAX_REQUEST_LENGTH {
-                            let resp = AlmeResponse::error("Request too large");
+                            let message = format!("Request too large");
+                            let resp = AlmeResponse::error(&message);
+                            tracing::warn!("{}", message);
                             send_response(&mut writer, &resp).await?;
                             continue;
                         }
@@ -192,19 +199,21 @@ async fn handle_connection(
                         trimmed.to_string()
                     },
                     Ok(Err(e)) => {
-                        eprintln!("[ALME] Recieved error: {}", e);
+                        tracing::error!("Recieved error: {}", e);
                         return Err(ArcellaError::Io(e));
                     },
                     _ => {
-                        eprintln!("[ALME] Reader timeout");
+                        tracing::warn!("Reader timeout");
                         let _ = writer.shutdown().await;
+                        tracing::debug!("Writer shutdown complete");
                         return Ok(());
                     }
                 }
             },
             _ = shutdown_rx.recv() => {
-                eprintln!("[ALME] Connection handler received shutdown signal");
+                tracing::debug!("Connection handler received shutdown signal");
                 let _ = writer.shutdown().await;
+                tracing::debug!("Writer shutdown complete");
                 return Ok(());
             },
         };
@@ -212,13 +221,14 @@ async fn handle_connection(
         let request: AlmeRequest = match serde_json::from_str(&line) {
             Ok(req) => req,
             Err(e) => {
-                let message = format!("Invalid JSON: {}", e);
+                let message = format!("Invalid JSON: {} ", e);
                 let resp = AlmeResponse::error(&message);
+                tracing::debug!("{}", message);
                 send_response(&mut writer, &resp).await?;
-                eprintln!("[ALME] {message}");
                 continue;
             }
         };
+        tracing::trace!("Get request: {:?}", request);
 
         let response = match request {
             AlmeRequest::Ping => AlmeResponse {
@@ -231,8 +241,8 @@ async fn handle_connection(
 
                 let runtime_status = runtime_guard.status()?;
 
-                let start_time: OffsetDateTime = runtime_status.start_time.into();
-                let start_time_rfc3339 = start_time.format(&time::format_description::well_known::Rfc3339).unwrap();
+                let start_time_rfc3339 = runtime_status.start_time.format(&time::format_description::well_known::Rfc3339)
+                    .unwrap_or_else(|_| "<invalid-timestamp>".to_string());
 
                 let data = serde_json::json!({
                     "version": env!("CARGO_PKG_VERSION"),
@@ -279,11 +289,12 @@ async fn send_response(
     stream: &mut WriteHalf<UnixStream>,
     response: &AlmeResponse,
 ) -> ArcellaResult<()> {
+    tracing::trace!("Send response");
     let mut json = serde_json::to_vec(response)
         .map_err(|e| ArcellaError::Serialization(e.to_string()))?;
     json.push(b'\n');
     let _ = stream.write_all(&json).await.map_err(|e| {
-        eprintln!("[ALME] Failed to send response: {}", e);
+        tracing::error!("Failed to send response: {}", e);
         ArcellaError::Io(e)
     });
     Ok(())
