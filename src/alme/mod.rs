@@ -12,8 +12,9 @@ use tokio::task::JoinHandle;
 use crate::runtime::ArcellaRuntime;
 use crate::error::{ArcellaError, Result as ArcellaResult};
 
-pub mod protocol;
-pub mod server;
+mod commands;
+mod protocol;
+mod server;
 
 pub struct AlmeServerHandle {
     shutdown_tx: Option<broadcast::Sender<()>>,

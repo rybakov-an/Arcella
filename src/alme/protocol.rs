@@ -1,16 +1,13 @@
 use serde::{Deserialize, Serialize};
 
-/// Commands accepted by the ALME server.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(tag = "cmd", content = "args")]
-pub enum AlmeRequest {
-    Ping,
-    Status,
-    ListModules,
-    // To be added in v0.7:
-    // Install { path: String },
-    // Start { id: String },
-    // Stop { id: String },
+#[derive(Deserialize, Debug, Clone)]
+pub struct AlmeRequest {
+    /// Command name in hierarchical format, e.g., "log:tail", "module:status"
+    pub cmd: String,
+
+    /// Optional arguments for the command
+    #[serde(default)]
+    pub args: serde_json::Value,
 }
 
 /// ALME server response format.
@@ -23,9 +20,16 @@ pub struct AlmeResponse {
 }
 
 impl AlmeResponse {
-    /// Gracefully shuts down the ALME server and waits for it to finish.
-    pub fn error(message: &str) -> AlmeResponse {
-        AlmeResponse {
+    pub fn success(message: &str, data: Option<serde_json::Value>) -> Self {
+        Self {
+            success: true,
+            message: message.to_string(),
+            data,
+        }
+    }
+
+    pub fn error(message: &str) -> Self {
+        Self {
             success: false,
             message: message.to_string(),
             data: None,
