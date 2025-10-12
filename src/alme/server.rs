@@ -5,11 +5,30 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
+//! ALME (Arcella Local Management Extensions) Unix socket server implementation.
+//!
+//! This module provides the core IPC server that enables external tools
+//! (such as the CLI, monitoring agents, or scripts) to interact with the
+//! Arcella runtime daemon via a secure, local Unix domain socket.
+//!
+//! The server:
+//! - Listens on a filesystem socket (e.g., `~/.arcella/alme`) with `0o600` permissions
+//! - Accepts line-oriented JSON requests (one command per line)
+//! - Dispatches commands to handlers in [`crate::alme::commands`]
+//! - Returns structured JSON responses
+//! - Supports graceful shutdown via a broadcast channel
+//! - Enforces security limits (max request size, read timeout)
+//! - Automatically cleans up stale socket files on startup
+//!
+//! The protocol is synchronous and connection-scoped: each client may send
+//! multiple commands over a single connection, and the server responds to each
+//! in order. The server is designed for local administration only and is not
+//! intended for network exposure.
+
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::Arc;
-use time::OffsetDateTime;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, WriteHalf};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{RwLock, broadcast};
@@ -230,42 +249,7 @@ async fn handle_connection(
         };
         tracing::trace!("Get request: {:?}", request);
 
-        let response = match request {
-            AlmeRequest::Ping => AlmeResponse {
-                success: true,
-                message: "pong".to_string(),
-                data: None,
-            },
-            AlmeRequest::Status => {
-                let runtime_guard = runtime.read().await;
-
-                let runtime_status = runtime_guard.status()?;
-
-                let start_time_rfc3339 = runtime_status.start_time.format(&time::format_description::well_known::Rfc3339)
-                    .unwrap_or_else(|_| "<invalid-timestamp>".to_string());
-
-                let data = serde_json::json!({
-                    "version": env!("CARGO_PKG_VERSION"),
-                    "pid": runtime_status.pid,
-                    "start_time": format!("{}", start_time_rfc3339),
-                    "uptime": runtime_status.uptime.as_secs(),
-                    "socket_path": runtime_guard.config.socket_path.to_string_lossy(),
-                    "worker_groups": "",
-                    "modules": "",
-                });
-
-                AlmeResponse {
-                    success: true,
-                    message: "Arcella runtime is active".to_string(),
-                    data: Some(data),
-                }
-            },
-            AlmeRequest::ListModules => AlmeResponse {
-                success: true,
-                message: "No modules".to_string(),
-                data: Some(serde_json::json!([])),
-            },
-        };
+        let response = super::commands::dispatch_command(&request.cmd, &request.args, &runtime).await;
 
         send_response(&mut writer, &response).await?;
 
@@ -340,7 +324,7 @@ mod tests {
 
         // Client
         let mut stream = UnixStream::connect(&socket_path).await.unwrap();
-        stream.write_all(b"{\"cmd\":\"Ping\"}").await.unwrap();
+        stream.write_all(b"{\"cmd\":\"ping\"}").await.unwrap();
         stream.write_all(b"\n").await.unwrap();
         stream.flush().await.unwrap();
 
@@ -398,7 +382,7 @@ mod tests {
         writer.write_all(b"   \n").await.unwrap();
 
         // Command Ping
-        writer.write_all(b"{\"cmd\":\"Ping\"}\n").await.unwrap();
+        writer.write_all(b"{\"cmd\":\"ping\"}\n").await.unwrap();
         writer.flush().await.unwrap();
 
         let mut response_line = String::new();
@@ -420,7 +404,7 @@ mod tests {
         let alme_handle = spawn_server(socket_path.clone(), runtime).await.unwrap();
 
         let mut stream = UnixStream::connect(&socket_path).await.unwrap();
-        stream.write_all(b"{\"cmd\":\"Status\"}").await.unwrap();
+        stream.write_all(b"{\"cmd\":\"status\"}").await.unwrap();
         stream.write_all(b"\n").await.unwrap();
         stream.flush().await.unwrap();
 
@@ -489,8 +473,8 @@ mod tests {
         let (reader, mut writer) = stream.split();
         let mut reader = BufReader::new(reader);
 
-        // Command 1: Ping
-        writer.write_all(b"{\"cmd\":\"Ping\"}\n").await.unwrap();
+        // Command 1: ping
+        writer.write_all(b"{\"cmd\":\"ping\"}\n").await.unwrap();
         writer.flush().await.unwrap();
 
         let mut response_line = String::new();
@@ -498,16 +482,16 @@ mod tests {
         let resp1: AlmeResponse = serde_json::from_str(&response_line).unwrap();
         response_line.clear();
 
-        // Command 2: Status
-        writer.write_all(b"{\"cmd\":\"Status\"}\n").await.unwrap();
+        // Command 2: status
+        writer.write_all(b"{\"cmd\":\"status\"}\n").await.unwrap();
         writer.flush().await.unwrap();
 
         reader.read_line(&mut response_line).await.unwrap();
         let resp2: AlmeResponse = serde_json::from_str(&response_line).unwrap();
         response_line.clear();
 
-        // Command 3: ListModules
-        writer.write_all(b"{\"cmd\":\"ListModules\"}\n").await.unwrap();
+        // Command 3: module:list
+        writer.write_all(b"{\"cmd\":\"module:list\"}\n").await.unwrap();
         writer.flush().await.unwrap();
 
         reader.read_line(&mut response_line).await.unwrap();
