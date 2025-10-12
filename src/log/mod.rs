@@ -22,7 +22,6 @@
 //!
 //! The system is thread-safe and uses non-blocking I/O for file writes.
 
-use crossbeam::queue::ArrayQueue;
 use std::collections::{VecDeque, HashMap};
 use std::fs;
 use std::path::PathBuf;
@@ -47,7 +46,8 @@ use crate::config::ArcellaConfig;
 
 /// In-memory ring buffer storing the most recent log entries.
 /// Used to serve logs via ALME (e.g., for CLI queries).
-// TODO: use a lock-free buffer for high-throughput scenarios
+// TODO: For high-load tasks, it is necessary to implement 
+// a lock-free circular buffer with multi-reader snapshots
 static LOG_BUFFER: std::sync::OnceLock<Arc<Mutex<VecDeque<String>>>> = std::sync::OnceLock::new();
 
 fn get_log_buffer() -> Option<&'static Arc<Mutex<VecDeque<String>>>> {
