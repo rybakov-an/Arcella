@@ -25,7 +25,7 @@ impl AlmeServerHandle {
     pub async fn shutdown(mut self) -> ArcellaResult<()> {
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(());
-            eprintln!("[ALME] sending shutdown signal...");
+            tracing::debug!("Sending shutdown signal to ALME server");
        }
         if let Some(handle) = self.join_handle.take() {
             let _ = handle.await?;
@@ -38,6 +38,7 @@ impl Drop for AlmeServerHandle {
     fn drop(&mut self) {
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(());
+            tracing::debug!("Sending shutdown signal to ALME server on drop");
         }
     }
 }

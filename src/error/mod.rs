@@ -12,6 +12,7 @@
 //! and `anyhow::Result<T>` (aliased as `Result<T>`) for top-level functions like `main`.
 //! 
 
+use std::path::PathBuf;
 use thiserror::Error;
 use tokio::task::JoinError;
 
@@ -77,6 +78,10 @@ pub enum ArcellaError {
     /// Runtime error.
     #[error("Runtime error: {0}")]
     RuntimeError(String),
+
+    /// IO error with associated path for better diagnostics
+    #[error("I/O error at {0:?}: {1}")]
+    IoWithPath (std::io::Error, PathBuf),
 
 }
 

@@ -25,30 +25,37 @@ struct Cli {}
 #[tokio::main]
 async fn main() -> ArcellaResult<()> {
 
-    // 1. Initialize logging (should be the first side effect)
-
-    // 2. Load configuration (e.g., paths, runtime options)
+    // 1. Load configuration (e.g., paths, runtime options)
     let _ = Cli::parse(); 
     let config = Arc::new(config::load().await?);
 
+    // 2. Initialize logging (should be the first side effect)
+    let _log_guard = log::init(&config)?;
+    tracing::info!("Starting up (v{})", env!("CARGO_PKG_VERSION"));
+
     // 3. Initialize core subsystems: storage and module cache
     let storage = Arc::new(storage::StorageManager::new(&config).await?);
+    tracing::debug!("Initialize storage");
     let cache = Arc::new(cache::ModuleCache::new(&config).await?);
+    tracing::debug!("Initialize cache");
 
     let runtime = Arc::new(RwLock::new(
         runtime::ArcellaRuntime::new(config.clone(), storage.clone(), cache.clone()).await?,
     ));
+    tracing::debug!("Initialize core runtime");
 
 
     let alme_handle = alme::start(runtime.clone()).await?;
+    tracing::info!("Starting ALME server");
 
     tokio::signal::ctrl_c().await?;
+    tracing::info!("Received Ctrl+C, shutting down...");
 
     runtime.write().await.shutdown().await?;
     alme_handle.shutdown().await?;
 
-    println!("\nArcella shutting down...");
-
+    tracing::info!("Shutting down");
+        
     // Configure the engine
     /*let mut config = Config::default();
     config.wasm_backtrace_details(WasmBacktraceDetails::Enable);
@@ -91,6 +98,8 @@ async fn main() -> ArcellaResult<()> {
             eprintln!("No default function found — nothing to run.");
         }
     }*/
+
+    drop(_log_guard);
 
     Ok(())
     
