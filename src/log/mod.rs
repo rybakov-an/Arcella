@@ -28,6 +28,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use time::OffsetDateTime;
 
+
 use serde::{Deserialize, Deserializer};
 use tracing_subscriber::{
     filter::{EnvFilter, LevelFilter},
@@ -110,6 +111,7 @@ pub fn init(config: &ArcellaConfig) -> ArcellaResult<Option<tracing_appender::no
     let env_filter = EnvFilter::try_new(filter)
         .map_err(|e| ArcellaError::Config(format!("invalid log filter: {}", e)))?;
 
+
     let mut layers = Vec::new();
 
     // 1. File layer
@@ -157,6 +159,7 @@ pub fn init(config: &ArcellaConfig) -> ArcellaResult<Option<tracing_appender::no
     subscriber
         .try_init()
         .map_err(|e| ArcellaError::Internal(format!("failed to init tracing: {}", e)))?;
+
 
     Ok(file_guard)
 }
@@ -325,7 +328,6 @@ where
                 fields
             ); 
 
-            let mut buf = buffer.lock().unwrap();
             match buffer.lock() {
                 Ok(mut buf) => {
                     if buf.len() >= self.max_size {
