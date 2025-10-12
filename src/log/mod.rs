@@ -22,6 +22,7 @@
 //!
 //! The system is thread-safe and uses non-blocking I/O for file writes.
 
+use crossbeam::queue::ArrayQueue;
 use std::collections::{VecDeque, HashMap};
 use std::fs;
 use std::path::PathBuf;
