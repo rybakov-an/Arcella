@@ -5,12 +5,28 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
+
+//! Logging and tracing for the Arcella Runtime.
+//!
+//! This module implements a flexible, multi-channel logging system based on the [`tracing`] crate.
+//! It supports three output channels:
+//! - **File** (`arcella.log`) — with optional structured (JSON) or plain-text formatting;
+//! - **stderr** — for convenient debugging when running in foreground mode;
+//! - **In-memory ring buffer** — to expose recent logs via ALME (e.g., through the CLI).
+//!
+//! Configuration is read from `tracing.cfg` in Arcella’s config directory and allows:
+//! - Setting a global log level;
+//! - Configuring per-module or per-target log levels;
+//! - Enabling/disabling individual output channels;
+//! - Limiting the in-memory buffer size for ALME.
+//!
+//! The system is thread-safe and uses non-blocking I/O for file writes.
+
 use std::collections::{VecDeque, HashMap};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use time::OffsetDateTime;
-
 
 use serde::{Deserialize, Deserializer};
 use tracing_subscriber::{
@@ -27,15 +43,40 @@ use crate::config::ArcellaConfig;
 
 // Global resources for logger
 
-/// Buffer for ALME log access (in-memory ring buffer)
-// TODO: use lock-free buffer for high-throughput scenarios 
+/// In-memory ring buffer storing the most recent log entries.
+/// Used to serve logs via ALME (e.g., for CLI queries).
+// TODO: use a lock-free buffer for high-throughput scenarios
 static LOG_BUFFER: std::sync::OnceLock<Arc<Mutex<VecDeque<String>>>> = std::sync::OnceLock::new();
 
 fn get_log_buffer() -> Option<&'static Arc<Mutex<VecDeque<String>>>> {
     LOG_BUFFER.get()
 }
 
-/// Loads and initializes the global tracing subscriber.
+/// Initializes the global `tracing` subscriber based on the provided configuration.
+///
+/// This function must be called exactly once during daemon startup. It:
+/// - Creates the log directory if it doesn’t exist;
+/// - Loads or falls back to default settings from `tracing.cfg`;
+/// - Configures logging layers: file, stderr, and in-memory buffer for ALME;
+/// - Installs a global subscriber for `tracing`.
+///
+/// # Arguments
+///
+/// * `config` — reference to the main Arcella configuration, which includes paths to logs and config files.
+///
+/// # Returns
+///
+/// A `WorkerGuard` from `tracing_appender`, which must be kept alive until shutdown
+/// to ensure buffered log entries are flushed to disk. Returns `None` if file logging is disabled.
+											  
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The log directory cannot be created;
+/// - `tracing.cfg` is malformed or contains invalid values;
+/// - The global subscriber has already been initialized;
+/// - The ALME in-memory buffer fails to initialize (when enabled).
 pub fn init(config: &ArcellaConfig) -> ArcellaResult<Option<tracing_appender::non_blocking::WorkerGuard>> {
 
     let mut file_guard: Option<tracing_appender::non_blocking::WorkerGuard> = None;
@@ -68,7 +109,6 @@ pub fn init(config: &ArcellaConfig) -> ArcellaResult<Option<tracing_appender::no
 
     let env_filter = EnvFilter::try_new(filter)
         .map_err(|e| ArcellaError::Config(format!("invalid log filter: {}", e)))?;
-
 
     let mut layers = Vec::new();
 
@@ -104,7 +144,7 @@ pub fn init(config: &ArcellaConfig) -> ArcellaResult<Option<tracing_appender::no
         layers.push(console_layer);
     }
 
-    // 3. In memory ALME layer
+    // 3. In-memory ALME layer
     if tracing_cfg.alme_buffer_size > 0 {
         let alme_layer = AlmeBufferLayer::new(tracing_cfg.alme_buffer_size);
         layers.push(Box::new(alme_layer));
@@ -118,13 +158,16 @@ pub fn init(config: &ArcellaConfig) -> ArcellaResult<Option<tracing_appender::no
         .try_init()
         .map_err(|e| ArcellaError::Internal(format!("failed to init tracing: {}", e)))?;
 
-
     Ok(file_guard)
 }
 
+/// Loads tracing configuration from a TOML file.
+///
+/// If the file does not exist, default settings are returned.
 fn load_tracing_config(path: &PathBuf) -> ArcellaResult<TracingConfig> {
     if !path.exists() {
-        //create_default_tracing_config(path)?;
+        tracing::debug!("tracing.cfg not found, using defaults");
+        return Ok(TracingConfig::default());
     }
 
     let contents = fs::read_to_string(path)
@@ -143,6 +186,7 @@ where
     s.parse::<LevelFilter>().map_err(serde::de::Error::custom)
 }
 
+/// Helper: deserialize a map of per-module log levels.
 fn deserialize_module_levels<'de, D>(deserializer: D) -> Result<HashMap<String, LevelFilter>, D::Error>
 where
     D: Deserializer<'de>,
@@ -158,23 +202,53 @@ where
     Ok(result)
 }
 
+/// Arcella tracing configuration.
 #[derive(Deserialize, Debug, Clone)]
 pub struct TracingConfig {
+    /// Default log level for targets under the `arcella` namespace.
+    ///
+    /// Valid values: `"trace"`, `"debug"`, `"info"`, `"warn"`, `"error"`.
     #[serde(default = "default_log_level", deserialize_with = "deserialize_level_filter")]
     pub default_level: LevelFilter,
 
+    /// Use structured (JSON) format for file logging.
+    ///
+    /// If `true`, entries in `arcella.log` will be JSON-encoded, suitable for machine processing
+    /// (e.g., ingestion into ELK or Loki). If `false`, human-readable text is used.
     #[serde(default = "default_structured")]
     pub structured: bool,
 
+    /// Output logs to stderr.
+    ///
+    /// Useful when running Arcella in foreground mode or inside a container where stderr is
+    /// captured by an orchestrator (e.g., systemd or Kubernetes).
     #[serde(default = "default_stderr")]
     pub stderr: bool,
 
+    /// Write logs to the `arcella.log` file.
+    ///
+    /// The file is created in the directory specified by `ArcellaConfig::log_dir`.
     #[serde(default = "default_file")]
     pub file: bool,
 
+    /// Maximum size of the in-memory ring buffer for ALME (in log entries).
+    ///
+    /// A value of `0` disables the buffer. Used by the `alme logs` command to retrieve
+    /// the most recent `N` lines without reading the log file.
     #[serde(default = "default_alme_buffer_size")]
     pub alme_buffer_size: usize,
 
+    /// Per-module/target log levels.
+    ///
+    /// Keys are target names (e.g., `"arcella::runtime"`), values are log levels.
+    /// These override `default_level` for the specified targets.
+    ///
+    /// Example:
+    /// ```toml
+    /// [modules]
+    /// "arcella::runtime" = "info"
+    /// "arcella::alme" = "debug"
+    /// ```
     #[serde(default, deserialize_with = "deserialize_module_levels")]
     pub modules: HashMap<String, LevelFilter>,
 }
@@ -199,6 +273,8 @@ impl Default for TracingConfig {
 }
 
 // === Layer for ALME ===
+
+/// A tracing layer that writes events to an in-memory ring buffer for later retrieval via ALME.
 struct AlmeBufferLayer {
     max_size: usize,
 }
@@ -250,18 +326,46 @@ where
             ); 
 
             let mut buf = buffer.lock().unwrap();
-            if buf.len() >= self.max_size {
-                buf.pop_front();
+            match buffer.lock() {
+                Ok(mut buf) => {
+                    if buf.len() >= self.max_size {
+                        buf.pop_front();
+                    }
+                    buf.push_back(line);
+                }
+                Err(e) => {
+                    // Avoid panicking in a tracing handler; silently ignore if poisoned
+                    eprintln!("ALME log buffer poisoned: {}", e);
+                }
             }
-            buf.push_back(line);
+
         }
     }
 }
 
+/// Returns up to `n` most recent log entries from the in-memory buffer.
+///
+/// The buffer is only populated if `alme_buffer_size > 0` in `tracing.cfg`.
+/// Entries are returned in reverse chronological order (most recent first).
+///
+/// # Arguments
+///
+/// * `n` — maximum number of log lines to return.
+///
+/// # Returns
+///
+/// A vector of log strings. Returns an empty vector if the buffer is uninitialized or disabled.
 pub fn get_recent_logs(n: usize) -> Vec<String> {
     if let Some(buffer) = get_log_buffer() {
-        let buf = buffer.lock().unwrap();
-        buf.iter().rev().take(n).cloned().collect()
+        match buffer.lock() {
+            Ok(buf) => {
+                buf.iter().rev().take(n).cloned().collect()
+            }
+            Err(e) => {
+                eprintln!("Failed to lock ALME log buffer: {}", e);
+                vec![]
+            }
+        }
     } else {
         vec![]
     }
