@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["AlmeRequest"],"struct":["AlmeResponse"]};
+window.SIDEBAR_ITEMS = {"struct":["AlmeRequest","AlmeResponse"]};

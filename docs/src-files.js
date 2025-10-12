@@ -1,2 +1,2 @@
-createSrcSidebar('[["arcella",["",[["alme",[],["mod.rs","protocol.rs","server.rs"]],["cache",[],["mod.rs"]],["cli",[],["mod.rs"]],["config",[],["mod.rs"]],["error",[],["mod.rs"]],["log",[],["mod.rs"]],["manifest",[],["mod.rs"]],["runtime",[],["mod.rs"]],["storage",[],["mod.rs"]]],["main.rs"]]]]');
-//{"start":19,"fragment_lengths":[275]}
+createSrcSidebar('[["arcella",["",[["alme",[],["commands.rs","mod.rs","protocol.rs","server.rs"]],["cache",[],["mod.rs"]],["cli",[],["mod.rs"]],["config",[],["mod.rs"]],["error",[],["mod.rs"]],["log",[],["mod.rs"]],["manifest",[],["mod.rs"]],["runtime",[],["mod.rs"]],["storage",[],["mod.rs"]]],["main.rs"]]]]');
+//{"start":19,"fragment_lengths":[289]}
