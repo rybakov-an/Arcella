@@ -1,5 +1,5 @@
 (function() {
-    var implementors = Object.fromEntries([["Arcella",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.90.0/core/fmt/trait.Display.html\" title=\"trait core::fmt::Display\">Display</a> for <a class=\"enum\" href=\"Arcella/error/enum.ArcellaError.html\" title=\"enum Arcella::error::ArcellaError\">ArcellaError</a>"]]]]);
+    var implementors = Object.fromEntries([["arcella",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.90.0/core/fmt/trait.Display.html\" title=\"trait core::fmt::Display\">Display</a> for <a class=\"enum\" href=\"arcella/error/enum.ArcellaError.html\" title=\"enum arcella::error::ArcellaError\">ArcellaError</a>"]]]]);
     if (window.register_implementors) {
         window.register_implementors(implementors);
     } else {

@@ -1,5 +1,5 @@
 (function() {
-    var implementors = Object.fromEntries([["Arcella",[["impl Parser for <a class=\"struct\" href=\"Arcella/struct.Cli.html\" title=\"struct Arcella::Cli\">Cli</a>"]]]]);
+    var implementors = Object.fromEntries([["arcella",[["impl Parser for <a class=\"struct\" href=\"arcella/struct.Cli.html\" title=\"struct arcella::Cli\">Cli</a>"]]]]);
     if (window.register_implementors) {
         window.register_implementors(implementors);
     } else {

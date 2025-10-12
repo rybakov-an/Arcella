@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["default_alme_buffer_size","default_file","default_log_level","default_stderr","default_structured","deserialize_level_filter","deserialize_module_levels","get_log_buffer","get_recent_logs","init","load_tracing_config"],"static":["LOG_BUFFER"],"struct":["AlmeBufferLayer","EventVisitor","TracingConfig"]};
