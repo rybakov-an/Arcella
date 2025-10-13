@@ -5,7 +5,6 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
-
 //! Logging and tracing for the Arcella Runtime.
 //!
 //! This module implements a flexible, multi-channel logging system based on the [`tracing`] crate.

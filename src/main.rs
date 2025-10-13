@@ -12,7 +12,6 @@ use tokio::sync::RwLock;
 //use wasmtime_wasi::{p1, WasiCtxBuilder};
 use wat;
 
-mod cli;
 mod alme;
 mod runtime;
 mod config;
