@@ -1,3 +1,5 @@
+// arcella/arcella-cli/src/main.rs
+//
 // Copyright (c) 2025 Arcella Team
 //
 // Licensed under the Apache License, Version 2.0 <LICENSE-APACHE>
@@ -6,10 +8,11 @@
 // except according to those terms.
 
 use clap::{Parser, Subcommand};
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
+
+use alme_proto::{AlmeRequest, AlmeResponse};
 
 /// Arcella CLI — управление runtime'ом через ALME
 #[derive(Parser)]
@@ -38,23 +41,6 @@ enum Commands {
     /// Интерактивная консоль
     Shell,
 }
-
-// --- ALME Protocol (скопировано из arcella/alme/protocol.rs) ---
-#[derive(Serialize, Deserialize, Debug)]
-struct AlmeRequest {
-    cmd: String,
-    #[serde(default)]
-    args: serde_json::Value,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct AlmeResponse {
-    success: bool,
-    message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    data: Option<serde_json::Value>,
-}
-// --- Конец протокола ---
 
 async fn send_alme_request(
     socket_path: &PathBuf,
@@ -101,8 +87,65 @@ async fn handle_command(cmd: Commands) -> anyhow::Result<()> {
                 eprintln!("Error: {}", resp.message);
                 std::process::exit(1);
             }
-        }
-        _ => {}
+        },
+        Commands::Status => {
+            let req = AlmeRequest {
+                cmd: "status".to_string(),
+                args: serde_json::Value::Null,
+            };
+            let resp = send_alme_request(&socket_path, req).await?;
+            if resp.success {
+                println!("Status: {}", resp.message);
+                if let Some(data) = resp.data {
+                    println!("Data: {:#}", data);
+                }
+            } else {
+                eprintln!("Error: {}", resp.message);
+                std::process::exit(1);
+            }
+        },
+        Commands::LogTail { n } => {
+            let args = serde_json::json!({ "n": n });
+            let req = AlmeRequest {
+                cmd: "log:tail".to_string(),
+                args,
+            };
+            let resp = send_alme_request(&socket_path, req).await?;
+            if resp.success {
+                if let Some(data) = resp.data {
+                    if let Some(lines) = data.get("lines").and_then(|v| v.as_array()) {
+                        for line in lines {
+                            if let Some(s) = line.as_str() {
+                                println!("{}", s);
+                            }
+                        }
+                    }
+                }
+            } else {
+                eprintln!("Error: {}", resp.message);
+                std::process::exit(1);
+            }
+        },
+        Commands::ModuleList => {
+            let req = AlmeRequest {
+                cmd: "module:list".to_string(),
+                args: serde_json::Value::Null,
+            };
+            let resp = send_alme_request(&socket_path, req).await?;
+            if resp.success {
+                if let Some(data) = resp.data {
+                    println!("{:#}", data);
+                }
+            } else {
+                eprintln!("Error: {}", resp.message);
+                std::process::exit(1);
+            }
+        },
+        Commands::Shell => {
+            eprintln!("Interactive shell not implemented yet (use single commands)");
+            std::process::exit(1);
+        },
+        //_ => {}
     }
     Ok(())
 }

@@ -1,3 +1,5 @@
+// arcella/arcella/src/alme/server.rs
+//
 // Copyright (c) 2025 Arcella Team
 //
 // Licensed under the Apache License, Version 2.0 <LICENSE-APACHE>
@@ -34,10 +36,10 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{RwLock, broadcast};
 use tokio::time::{timeout, Duration as TokioDuration};
 
+pub use alme_proto::{AlmeRequest, AlmeResponse};
+
 use crate::runtime::ArcellaRuntime;
 use crate::error::{ArcellaError, Result as ArcellaResult};
-
-use crate::alme::protocol::{AlmeRequest, AlmeResponse};
 
 /// Maximum allowed length of an incoming ALME request in bytes.
 /// Requests exceeding this limit will be rejected to prevent resource exhaustion.
@@ -54,7 +56,7 @@ static MAX_READER_TIMEOUT: u64 = 60; // seconds
 /// On startup, any existing file at `socket_path` is removed to handle stale sockets.
 /// The socket file is created with permissions `0o600` (read/write for owner only) for security.
 ///
-/// A graceful shutdown can be initiated by calling [AlmeServerHandle::shutdown],
+/// A graceful shutdown can be initiated by calling [crate::alme::AlmeServerHandle::shutdown],
 /// which signals the server to stop accepting new connections, notifies all active connection 
 /// handlers to terminate, and removes the Unix socket file once the server loop exits.
 ///  
@@ -88,7 +90,7 @@ pub async fn spawn_server(
     fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600))?;
     tracing::debug!("Set permissions on ALME socket: {:?}", socket_path);
 
-    let (shutdown_tx, mut shutdown_rx) = broadcast::channel::<()>(1);
+    let (shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
 
     let socket_path_clone = socket_path.clone();
     let runtime_clone = runtime.clone();
@@ -295,12 +297,10 @@ mod tests {
 
     use tempfile::TempDir;
 
+    use alme_proto::{AlmeResponse};
+
     use crate::runtime::ArcellaRuntime;
     use crate::config::ArcellaConfig;
-    use crate::error::{ArcellaError, Result as ArcellaResult};
-
-    use crate::alme::protocol::{AlmeResponse};
-
 
     async fn create_test_runtime() -> Arc<RwLock<ArcellaRuntime>> {
         // Create a minimal configuration

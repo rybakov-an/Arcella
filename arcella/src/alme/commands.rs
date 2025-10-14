@@ -1,3 +1,5 @@
+// arcella/arcella/src/alme/command.rs
+//
 // Copyright (c) 2025 Arcella Team
 //
 // Licensed under the Apache License, Version 2.0 <LICENSE-APACHE>
@@ -18,6 +20,8 @@
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+use alme_proto::{AlmeRequest, AlmeResponse};
 
 use crate::log;
 use crate::runtime::ArcellaRuntime;
@@ -43,14 +47,14 @@ pub async fn dispatch_command(
     cmd: &str,
     args: &Value,
     runtime: &Arc<RwLock<ArcellaRuntime>>,
-) -> super::protocol::AlmeResponse {
+) -> AlmeResponse {
     match cmd {
         "ping" => handle_ping(),
         "status" => handle_status(runtime).await,
         "log:tail" => handle_log_tail(args).await,
         "module:list" => handle_module_list(runtime).await,
         // ... other command
-        _ => super::protocol::AlmeResponse::error(&format!("Unknown command: {}", cmd)),
+        _ => AlmeResponse::error(&format!("Unknown command: {}", cmd)),
     }
 }
 
@@ -62,8 +66,8 @@ pub async fn dispatch_command(
 /// # Returns
 ///
 /// A successful [`AlmeResponse`] with message `"pong"` and no data.
-fn handle_ping() -> super::protocol::AlmeResponse {
-    super::protocol::AlmeResponse::success("pong", None)
+fn handle_ping() -> AlmeResponse {
+    AlmeResponse::success("pong", None)
 }
 
 /// Handles the `"status"` ALME command.
@@ -88,7 +92,7 @@ fn handle_ping() -> super::protocol::AlmeResponse {
 /// (e.g., due to a poisoned lock).
 async fn handle_status(
     runtime: &Arc<RwLock<ArcellaRuntime>>,
-) -> super::protocol::AlmeResponse {
+) -> AlmeResponse {
     
     let runtime_guard = runtime.read().await;
 
@@ -97,7 +101,7 @@ async fn handle_status(
         Err(e) => {
             let message = format!("Arcella runtime is fault: {} ", e);
             tracing::debug!("{}", message);
-            return super::protocol::AlmeResponse::error(&message)
+            return AlmeResponse::error(&message)
         }
     };
 
@@ -114,7 +118,7 @@ async fn handle_status(
         "modules": "",
     });
 
-    super::protocol::AlmeResponse::success("Arcella runtime is active", Some(data))
+    AlmeResponse::success("Arcella runtime is active", Some(data))
 
 }
 
@@ -133,7 +137,7 @@ async fn handle_status(
 /// A successful [`AlmeResponse`] containing a JSON object with a `"lines"` array
 /// of log strings (most recent first). Returns an empty array if the buffer is
 /// disabled or uninitialized.
-async fn handle_log_tail(args: &Value) -> super::protocol::AlmeResponse {
+async fn handle_log_tail(args: &Value) -> AlmeResponse {
     let n = args.get("n")
         .and_then(|v| v.as_u64())
         .map(|n| n as usize)
@@ -145,7 +149,7 @@ async fn handle_log_tail(args: &Value) -> super::protocol::AlmeResponse {
         "lines": lines
     });
 
-    super::protocol::AlmeResponse::success("Log tail retrieved", Some(data))
+    AlmeResponse::success("Log tail retrieved", Some(data))
 }
 
 /// Handles the `"module:list"` ALME command.
@@ -166,7 +170,7 @@ async fn handle_log_tail(args: &Value) -> super::protocol::AlmeResponse {
 /// Implement actual module enumeration by querying the runtime's module registry.
 async fn handle_module_list(
     _runtime: &Arc<RwLock<ArcellaRuntime>>,
-) -> super::protocol::AlmeResponse {
+) -> AlmeResponse {
     // TODO: реализовать
-    super::protocol::AlmeResponse::success("Module list", Some(serde_json::json!([])))
+    AlmeResponse::success("Module list", Some(serde_json::json!([])))
 }

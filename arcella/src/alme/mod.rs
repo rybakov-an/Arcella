@@ -1,3 +1,5 @@
+// arcella/arcella/src/alme/mod.rs
+//
 // Copyright (c) 2025 Arcella Team
 //
 // Licensed under the Apache License, Version 2.0 <LICENSE-APACHE>
@@ -12,8 +14,9 @@ use tokio::task::JoinHandle;
 use crate::runtime::ArcellaRuntime;
 use crate::error::{ArcellaError, Result as ArcellaResult};
 
+pub use alme_proto::{AlmeRequest, AlmeResponse};
+
 mod commands;
-mod protocol;
 mod server;
 
 pub struct AlmeServerHandle {
