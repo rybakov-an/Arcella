@@ -104,26 +104,43 @@ imports = ["wasi:http/incoming-handler@0.2.0"]
 ## 🧱 Структура проекта
 
 ```
-arcella/
-├── Cargo.toml
-├── src/
-│   ├── main.rs                 # Точка входа демона
-│   ├── cli/                    # CLI-парсер (arcella shell, install и т.д.)
-│   ├── alme/                   # ALME: Unix-сокет сервер и протокол
-│   ├── runtime/                # Основной runtime, управление модулями
-│   ├── worker/                 # Управление arcella-worker процессами
-│   ├── config/                 # Загрузка конфигурации (~/.arcella/cfg/)
-│   ├── storage/                # Работа с файлами (~/.arcella/modules/)
-│   ├── cache/                  # Кэширование скомпилированных модулей
-│   ├── manifest/               # Парсинг arcella.toml и валидация
-│   ├── log/                    # Инициализация трассировки
-│   └── error.rs                # Общие типы ошибок
+arcella/                              # Корень проекта (workspace)
+│
+├── Cargo.toml                        # [workspace] — объединяет все crate'ы
+├── README.md
+├── LICENSE-APACHE
+├── LICENSE-MIT
+│
+├── alme-proto/                       # 📦 Общий crate: протокол ALME
+│   ├── Cargo.toml
+│   └── src/
+│       └── lib.rs                    # AlmeRequest, AlmeResponse
+│
+├── arcella/                          # 🧠 Основной демон (runtime)
+│   ├── Cargo.toml
+│   └── src/
+│       ├── main.rs                   # Точка входа демона
+│       ├── lib.rs                    # Экспорт общих частей (опционально)
+│       ├── alme/                     # ALME-сервер
+│       ├── runtime/                  # Основной runtime, управление модулями
+│       ├── config/                   # Загрузка конфигурации (~/.arcella/cfg/)
+│       ├── storage/                  # Работа с файлами (~/.arcella/modules/)
+│       ├── cache/                    # Кэширование скомпилированных модулей
+│       ├── manifest/                 # Парсинг arcella.toml и валидация
+│       ├── log/                      # Инициализация трассировки
+│       └── error/                    # Общие типы ошибок
+│
+├── arcella-cli/                      # 🖥️ CLI-клиент (управление через ALME)
+│   ├── Cargo.toml
+│   └── src/
+│       └── main.rs                   # Точка входа CLI
 │
 ├── bin/
-│   └── arcella-worker.rs       # Отдельный бинарник для изолированных модулей
+│   └── arcella-worker.rs             # Отдельный бинарник для изолированных модулей
 │
 └── docs/
-    └── ARCHITECTURE.md         # Этот документ
+    ├── ARCHITECTURE.md
+    └── ...                           # Другая документация
 ```
 
 ---
