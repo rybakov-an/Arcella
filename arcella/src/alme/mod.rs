@@ -12,9 +12,9 @@ use tokio::sync::{RwLock, broadcast};
 use tokio::task::JoinHandle;
 
 use crate::runtime::ArcellaRuntime;
-use crate::error::{ArcellaError, Result as ArcellaResult};
+use crate::error::Result as ArcellaResult;
 
-pub use alme_proto::{AlmeRequest, AlmeResponse};
+//pub use alme_proto::{AlmeRequest, AlmeResponse};
 
 mod commands;
 mod server;

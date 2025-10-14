@@ -96,7 +96,7 @@ impl ArcellaRuntime{
         let manifest = ModuleManifest::from_wasm_path(wasm_path)?;
         manifest.validate()?;
 
-        let key = format!("{}@{}", manifest.module.name, manifest.module.version);
+        let key = manifest.module.id();
         self.modules.insert(key.clone(), manifest);
 
         tracing::info!("Installed module metadata: {}", key);

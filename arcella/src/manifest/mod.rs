@@ -37,6 +37,12 @@ pub struct ModuleMetadata {
     pub imports: Vec<String>,
 }
 
+impl ModuleMetadata {
+    pub fn id(&self) -> String {
+        format!("{}@{}", self.name, self.version)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IsolationMode {
     #[serde(rename = "main")]
@@ -54,7 +60,7 @@ pub struct StartupConfig {
 }
 
 impl ModuleManifest {
-    pub fn from_wasm_path(wasm_path: &Path) -> Result<Self, ArcellaError> {
+    pub fn from_wasm_path(wasm_path: &Path) -> ArcellaResult<Self> {
 
         let manifest_path = wasm_path.with_file_name("arcella.toml");
         if !manifest_path.exists() {
@@ -71,7 +77,7 @@ impl ModuleManifest {
 
     }
 
-    pub fn validate(&self) -> Result<(), ArcellaError> {
+    pub fn validate(&self) -> ArcellaResult<()> {
 
         if self.module.name.is_empty() {
             return Err(ArcellaError::Manifest("Module name must not be empty".into()));
@@ -95,7 +101,7 @@ impl ModuleManifest {
         }
 
         for export in &self.module.exports {
-            if !export.contains('@') {
+            if !Self::validate_interface_format(export) {
                 return Err(ArcellaError::Manifest(
                     format!("Invalid export format (expected 'interface@version'): {}", export)
                 ));
@@ -103,15 +109,26 @@ impl ModuleManifest {
         }
 
         for import in &self.module.imports {
-            if !import.contains('@') {
+            if !Self::validate_interface_format(import) {
                 return Err(ArcellaError::Manifest(
-                    format!("Invalid export format (expected 'interface@version'): {}", import)
+                    format!("Invalid import format (expected 'interface@version'): {}", import)
                 ));
             }
         }
 
+        // TODO(v0.2.6): use proper WIT parser
+
         Ok(())
 
+    }
+
+    fn validate_interface_format(s: &str) -> bool {
+        let parts: Vec<&str> = s.split('@').collect();
+        if parts.len() != 2 {
+            return false;
+        }
+        let (interface, version) = (parts[0], parts[1]);
+        !interface.is_empty() && !version.is_empty()
     }
 
 }
