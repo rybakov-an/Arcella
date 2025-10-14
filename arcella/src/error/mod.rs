@@ -65,7 +65,7 @@ pub enum ArcellaError {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error), 
 
-    /// Request is failed;
+    /// Invalid or malformed request;
     #[error("JRequest error: {0}")]
     InvalidRequest(String),
 

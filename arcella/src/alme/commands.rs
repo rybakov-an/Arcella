@@ -174,3 +174,4 @@ async fn handle_module_list(
     // TODO: реализовать
     AlmeResponse::success("Module list", Some(serde_json::json!([])))
 }
+
