@@ -1,3 +1,5 @@
+// arcella/arcella/src/main.rs
+//
 // Copyright (c) 2025 Arcella Team
 //
 // Licensed under the Apache License, Version 2.0 <LICENSE-APACHE>
@@ -12,7 +14,6 @@ use tokio::sync::RwLock;
 //use wasmtime_wasi::{p1, WasiCtxBuilder};
 use wat;
 
-mod cli;
 mod alme;
 mod runtime;
 mod config;
