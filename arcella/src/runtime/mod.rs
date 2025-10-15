@@ -9,7 +9,7 @@
 
 use std::{
     collections::HashMap,
-    path::{Path},
+    path::{PathBuf},
     sync::Arc,
     time::{Duration, Instant}
 };
@@ -19,7 +19,7 @@ use tokio::sync::{RwLock, broadcast};
 use crate::{storage, cache};
 use crate::config::ArcellaConfig;
 use crate::error::{ArcellaError, Result as ArcellaResult};
-use crate::manifest::ModuleManifest;
+use crate::manifest::{ComponentManifest, DeploymentProfile};
 
 struct ArcellaRuntimeEnvironment {
     pub pid: u32,
@@ -38,7 +38,7 @@ pub struct ArcellaRuntime {
     pub storage: Arc<storage::StorageManager>,
     pub cache: Arc<cache::ModuleCache>,
     pub environment: Arc<RwLock<ArcellaRuntimeEnvironment>>,
-    pub modules: HashMap<String, ModuleManifest>, // key = name@version
+    //pub modules: HashMap<String, ModuleManifest>, // key = name@version
     // Позже: instances, engine и т.д.
 
 }
@@ -61,7 +61,7 @@ impl ArcellaRuntime{
             storage,
             cache,
             environment: Arc::new(RwLock::new(env)),
-            modules: HashMap::new(),
+            //modules: HashMap::new(),
         };
 
         Ok(runtime)
@@ -91,15 +91,16 @@ impl ArcellaRuntime{
 
     pub async fn install_module_from_path(
         &mut self,
-        wasm_path: &Path,
+        wasm_path: &PathBuf,
     ) -> ArcellaResult<()> {
-        let manifest = ModuleManifest::from_wasm_path(wasm_path)?;
-        manifest.validate()?;
+        let component = ComponentManifest::from_component_toml(wasm_path)?
+            .ok_or_else(|| ArcellaError::Manifest("component.toml required for WASI modules".into()))?;
+        component.validate()?;
 
-        let key = manifest.module.id();
-        self.modules.insert(key.clone(), manifest);
+        let deployment = DeploymentProfile::from_file(wasm_path)?;
+        deployment.validate()?;
 
-        tracing::info!("Installed module metadata: {}", key);
+
         Ok(())
     }
 

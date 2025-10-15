@@ -21,7 +21,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use alme_proto::{AlmeRequest, AlmeResponse};
+use alme_proto::AlmeResponse;
 
 use crate::log;
 use crate::runtime::ArcellaRuntime;
