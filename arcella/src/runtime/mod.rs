@@ -19,7 +19,7 @@ use tokio::sync::{RwLock, broadcast};
 use crate::{storage, cache};
 use crate::config::ArcellaConfig;
 use crate::error::{ArcellaError, Result as ArcellaResult};
-use crate::manifest::{ComponentManifest, DeploymentProfile};
+use crate::manifest::{ComponentManifest};
 
 struct ArcellaRuntimeEnvironment {
     pub pid: u32,
@@ -97,8 +97,8 @@ impl ArcellaRuntime{
             .ok_or_else(|| ArcellaError::Manifest("component.toml required for WASI modules".into()))?;
         component.validate()?;
 
-        let deployment = DeploymentProfile::from_file(wasm_path)?;
-        deployment.validate()?;
+        //let deployment = DeploymentProfile::from_file(wasm_path)?;
+        //deployment.validate()?;
 
 
         Ok(())
