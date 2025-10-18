@@ -215,4 +215,19 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_recursion_limit() -> Result<()> {
+        let engine = Engine::default();
+        let wat = r#"(component)"#;
+        let component = Component::new(&engine, wat)?;
+        let ty = component.component_type();
+
+        let item = ComponentItem::Component(ty);
+        let spec = to_spec_with_depth(&item, &engine, MAX_RECURSION_DEPTH + 1, MAX_RECURSION_DEPTH)?;
+        
+        assert!(matches!(spec, ComponentItemSpec::Unknown { .. }));
+        Ok(())
+    }
+
 }
