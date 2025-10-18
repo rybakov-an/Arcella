@@ -14,8 +14,6 @@ use tokio::task::JoinHandle;
 use crate::runtime::ArcellaRuntime;
 use crate::error::Result as ArcellaResult;
 
-//pub use alme_proto::{AlmeRequest, AlmeResponse};
-
 mod commands;
 mod server;
 

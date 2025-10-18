@@ -29,6 +29,19 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use regex::Regex;
 use std::sync::OnceLock;
+use wasmtime::{
+    Engine,
+    component::{
+        Component, 
+        ComponentType,
+        types::{
+            ComponentItem,
+        },
+    }
+};
+
+use arcella_types::spec::{self, ComponentItemSpec};
+use arcella_wasmtime::ComponentItemSpecExt;
 
 use crate::error::{ArcellaError, Result as ArcellaResult};
 
@@ -57,19 +70,19 @@ pub struct ComponentManifest {
     #[serde(default)]
     pub description: Option<String>,
 
-    /// List of WIT interfaces this module **exports** to other components.
+    /// Tree of WIT interfaces this module **exports** to other components.
     ///
     /// Each entry must follow the format: `namespace:interface@version`
     /// (e.g., `"logger:log@1.0"`, `"wasi:http/incoming-handler@0.2.0"`).
     #[serde(default)]
-    pub exports: Vec<String>,
+    pub exports: HashMap<String, ComponentItemSpec>,
 
-    /// List of WIT interfaces this module **imports** from the environment.
+    /// Tree of WIT interfaces this module **imports** from the environment.
     ///
     /// Format is identical to `exports`. These interfaces must be provided
     /// by the runtime or other modules at link time.
     #[serde(default)]
-    pub imports: Vec<String>,
+    pub imports: HashMap<String, ComponentItemSpec>,
 
     /// Component capabilities and requirements
     #[serde(default)]
@@ -101,9 +114,96 @@ impl ComponentManifest {
         Ok(Some(manifest))
     }
 
-    pub fn from_wasm(wasm_path: &Path) -> ArcellaResult<Self> {
-        //TODO: if WASM introspection is implemented
-        Err(ArcellaError::Internal("WASM introspection not implemented yet".into()))
+    /// Extracts component metadata directly from a WebAssembly Component binary.
+    ///
+    /// This function:
+    /// - Only works with **WebAssembly Components** (not core Wasm or WASI preview1 modules).
+    /// - Extracts imports and exports in the format `namespace:interface`.
+    /// - Does **not** include version (`@x.y`) — this must be provided via `component.toml`
+    ///   or inferred from file naming convention if needed later.
+    /// - Requires a valid `name` and `version` — since they are not stored in Wasm,
+    ///   this function returns an error. In practice, you should derive them from
+    ///   the filename (e.g., `http-logger@0.1.0.wasm`) or require `component.toml`.
+    ///
+    /// For MVP v0.2.3, we assume that if `component.toml` is missing,
+    /// the filename encodes `name@version`.
+    pub fn from_wasm(engine: &Engine, wasm_path: &Path) -> ArcellaResult<Self> {
+
+        if !wasm_path.exists() {
+            return Err(ArcellaError::IoWithPath(
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("File not found: {:?}", wasm_path)
+                ),
+                wasm_path.into(),
+            ));
+        }
+
+        let file_stem = wasm_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .ok_or_else(|| ArcellaError::Manifest("Invalid .wasm filename".into()))?;        
+
+        if !validate_module_id(file_stem) {
+            return Err(ArcellaError::Manifest(
+                "Filename must be 'name@version.wasm' for components without component.toml".into()
+            ));
+        }
+
+        let (name, version) = file_stem
+            .split_once('@')
+            .ok_or_else(|| ArcellaError::Manifest("Expected 'name@version' format".into()))?;
+
+        let component = Component::from_file(engine, &wasm_path)
+            .map_err(ArcellaError::Wasmtime)?;
+        
+        let component_type = component.component_type();
+
+        let exports: HashMap<String, ComponentItemSpec> = component_type
+            .exports(engine)
+            .map(|(name, item)| {
+                let spec = item.to_spec(engine).unwrap_or_else(|e| {
+                    ComponentItemSpec::Unknown {
+                        debug: Some(format!("Export '{}': {:?}", name, e)),
+                    }
+                });
+                (name.into(), spec)
+            })
+            .collect();
+
+        let imports: HashMap<String, ComponentItemSpec> = component_type
+            .imports(engine)
+            .map(|(name, item)| {
+                let spec = item.to_spec(engine).unwrap_or_else(|e| {
+                    ComponentItemSpec::Unknown {
+                        debug: Some(format!("Import '{}': {:?}", name, e)),
+                    }
+                });
+                (name.into(), spec)
+            })
+            .collect();
+
+        let manifest = Self {
+            name: name.into(),
+            version: version.into(),
+            description: None,
+            exports: exports,
+            imports: imports,
+            capabilities: ComponentCapabilities::default(),
+        };
+
+        manifest.validate()?;
+        Ok(manifest)
+
+    }
+
+    /// Validates that a string is a valid WIT interface identifier (without version).
+    fn validate_interface_name_for_wit(s: &str) -> bool {
+        static RE: OnceLock<Regex> = OnceLock::new();
+        let re = RE.get_or_init(|| {
+            Regex::new(r"^[a-zA-Z0-9_-]+(:[a-zA-Z0-9_/-]+)?$").unwrap()
+        });
+        re.is_match(s)
     }
 
     /// Validates semantic correctness of the component manifest.
@@ -129,24 +229,6 @@ impl ComponentManifest {
                         ));
         }
 
-        for export in &self.exports {
-            if !Self::validate_interface_format(export) {
-                return Err(ArcellaError::Manifest(format!(
-                    "Invalid export format (expected 'namespace:interface@version'): {}",
-                    export
-                )));
-            }
-        }
-
-        for import in &self.imports {
-            if !Self::validate_interface_format(import) {
-                return Err(ArcellaError::Manifest(format!(
-                    "Invalid import format (expected 'namespace:interface@version'): {}",
-                    import
-                )));
-            }
-        }
-
         Ok(())
     }
 
@@ -170,11 +252,17 @@ impl ComponentManifest {
 
     /// Validates that a string matches the expected WIT interface format.
     fn validate_interface_format(s: &str) -> bool {
-        static RE: OnceLock<Regex> = OnceLock::new();
-        let re = RE.get_or_init(|| {
+        static RE_WITH_VERSION: OnceLock<Regex> = OnceLock::new();
+        static RE_WITHOUT_VERSION: OnceLock<Regex> = OnceLock::new();
+        
+        let re1 = RE_WITH_VERSION.get_or_init(|| {
             Regex::new(r"^[a-zA-Z0-9_-]+:[a-zA-Z0-9_/-]+@[a-zA-Z0-9.+_-]+$").unwrap()
         });
-        re.is_match(s)
+        let re2 = RE_WITHOUT_VERSION.get_or_init(|| {
+            Regex::new(r"^[a-zA-Z0-9_-]+:[a-zA-Z0-9_/-]+$").unwrap()
+        });
+        
+        re1.is_match(s) || re2.is_match(s)
     }
 
     /// Returns the canonical module identifier: `name@version`.
@@ -570,13 +658,13 @@ pub struct ComponentBundle {
 
 impl ComponentBundle {
     /// Loads a complete component bundle from a directory
-    pub fn from_wasm_path(wasm_path: &Path) -> ArcellaResult<Self> {
+    pub fn from_wasm_path(engine: &Engine, wasm_path: &Path) -> ArcellaResult<Self> {
 
         let component = if let Some(manifest) = ComponentManifest::from_component_toml(wasm_path)? {
             manifest
         } else {
             // TODO: в будущем — извлечение из .wasm
-            ComponentManifest::from_wasm(wasm_path)?
+            ComponentManifest::from_wasm(engine, wasm_path)?
         };
                 
         let template = DeploymentTemplate::from_template_toml(wasm_path)?;
@@ -614,12 +702,6 @@ pub fn validate_compatibility(
     // Check if async component is deployed in sync mode
     if !component.exports.is_empty() && !deployment.r#async {
         return Err(ArcellaError::Manifest("Component exports but deployment is sync".into()));
-    }
-
-    // Check if WASI component is deployed in main isolation
-    if component.imports.iter().any(|i| i.starts_with("wasi:")) 
-        && deployment.isolation == IsolationMode::Main {
-        return Err(ArcellaError::Manifest("WASI component deployed in main isolation".into()));
     }
 
     Ok(())
@@ -726,12 +808,12 @@ mod tests {
     fn test_invalid_component_name() {
         let toml = r#"
             [component]
-            name = "invalid name!"  # содержит пробел и !
+            name = "invalid name!"
             version = "0.1.0"
         "#;
         let wrapper: Result<ComponentManifestWrapper, _> = toml::from_str(toml);
-        assert!(wrapper.is_ok()); // парсинг успешен
-        assert!(wrapper.unwrap().component.validate().is_err()); // но валидация падает
+        assert!(wrapper.is_ok());
+        assert!(wrapper.unwrap().component.validate().is_err());
     }    
     
 }

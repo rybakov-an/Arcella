@@ -7,7 +7,8 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/ArcellaTeam/arcella"
 
 [dependencies]
-alme-proto = { path = "../alme-proto" }
+arcella-types = { path = "../arcella-types" }
+arcella-wasmtime = { path = "../arcella-wasmtime" }
 wasmtime = "37"
 wasmtime-wasi = "37"
 clap = { version = "4", features = ["derive"] }

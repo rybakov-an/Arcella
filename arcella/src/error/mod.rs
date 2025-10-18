@@ -1,4 +1,4 @@
-// arcella/arcella/src/error/mod.rs
+// arcella/arcella-lib/src/error/mod.rs
 //
 // Copyright (c) 2025 Arcella Team
 //
