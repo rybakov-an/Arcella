@@ -21,7 +21,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use alme_proto::{AlmeRequest, AlmeResponse};
+use arcella_types::alme::proto::AlmeResponse;
 
 use crate::log;
 use crate::runtime::ArcellaRuntime;
@@ -174,3 +174,4 @@ async fn handle_module_list(
     // TODO: реализовать
     AlmeResponse::success("Module list", Some(serde_json::json!([])))
 }
+

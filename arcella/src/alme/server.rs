@@ -36,7 +36,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{RwLock, broadcast};
 use tokio::time::{timeout, Duration as TokioDuration};
 
-pub use alme_proto::{AlmeRequest, AlmeResponse};
+use arcella_types::alme::proto::{AlmeRequest, AlmeResponse};
 
 use crate::runtime::ArcellaRuntime;
 use crate::error::{ArcellaError, Result as ArcellaResult};
@@ -297,7 +297,7 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use alme_proto::{AlmeResponse};
+    use arcella_types::alme::proto::AlmeResponse;
 
     use crate::runtime::ArcellaRuntime;
     use crate::config::ArcellaConfig;

@@ -1,4 +1,4 @@
-// arcella/arcella/src/error/mod.rs
+// arcella/arcella-lib/src/error/mod.rs
 //
 // Copyright (c) 2025 Arcella Team
 //
@@ -65,7 +65,7 @@ pub enum ArcellaError {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error), 
 
-    /// Request is failed;
+    /// Invalid or malformed request;
     #[error("JRequest error: {0}")]
     InvalidRequest(String),
 

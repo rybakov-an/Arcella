@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 
-use alme_proto::{AlmeRequest, AlmeResponse};
+use arcella_types::alme::proto::{AlmeRequest, AlmeResponse};
 
 /// Arcella CLI — управление runtime'ом через ALME
 #[derive(Parser)]

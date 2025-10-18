@@ -3,5 +3,6 @@
 members = [
     "arcella",
     "arcella-cli",
-    "alme-proto",
+    "arcella-types",
+    "arcella-wasmtime",
 ]

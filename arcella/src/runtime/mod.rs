@@ -7,14 +7,19 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    path::{PathBuf},
+    sync::Arc,
+    time::{Duration, Instant}
+};
 use time::OffsetDateTime;
 use tokio::sync::{RwLock, broadcast};
 
 use crate::{storage, cache};
 use crate::config::ArcellaConfig;
 use crate::error::{ArcellaError, Result as ArcellaResult};
+use crate::manifest::{ComponentManifest};
 
 struct ArcellaRuntimeEnvironment {
     pub pid: u32,
@@ -33,7 +38,8 @@ pub struct ArcellaRuntime {
     pub storage: Arc<storage::StorageManager>,
     pub cache: Arc<cache::ModuleCache>,
     pub environment: Arc<RwLock<ArcellaRuntimeEnvironment>>,
-    // Позже: modules, instances, engine и т.д.
+    //pub modules: HashMap<String, ModuleManifest>, // key = name@version
+    // Позже: instances, engine и т.д.
 
 }
 
@@ -55,6 +61,7 @@ impl ArcellaRuntime{
             storage,
             cache,
             environment: Arc::new(RwLock::new(env)),
+            //modules: HashMap::new(),
         };
 
         Ok(runtime)
@@ -80,6 +87,21 @@ impl ArcellaRuntime{
     pub fn uptime(&self) -> std::time::Duration {
         let env = self.environment.try_read().expect("Runtime environment poisoned");
         env.start_instant.elapsed()
+    }
+
+    pub async fn install_module_from_path(
+        &mut self,
+        wasm_path: &PathBuf,
+    ) -> ArcellaResult<()> {
+        let component = ComponentManifest::from_component_toml(wasm_path)?
+            .ok_or_else(|| ArcellaError::Manifest("component.toml required for WASI modules".into()))?;
+        component.validate()?;
+
+        //let deployment = DeploymentProfile::from_file(wasm_path)?;
+        //deployment.validate()?;
+
+
+        Ok(())
     }
 
     #[cfg(test)]

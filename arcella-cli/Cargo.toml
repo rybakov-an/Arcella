@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/ArcellaTeam/arcella"
 
 [dependencies]
-alme-proto = { path = "../alme-proto" }
+arcella-types = { path = "../arcella-types" }
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 dirs = "6"

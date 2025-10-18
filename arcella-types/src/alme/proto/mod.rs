@@ -1,4 +1,4 @@
-// arcella/alme-proto/src/lib.rs
+// arcella/arcella-types/src/alme/proto/mod.rs
 //
 // Copyright (c) 2025 Arcella Team
 //
@@ -44,7 +44,7 @@ impl AlmeResponse {
     pub fn success(message: &str, data: Option<serde_json::Value>) -> Self {
         Self {
             success: true,
-            message: message.to_string(),
+            message: message.into(),
             data,
         }
     }
@@ -53,7 +53,7 @@ impl AlmeResponse {
     pub fn error(message: &str) -> Self {
         Self {
             success: false,
-            message: message.to_string(),
+            message: message.into(),
             data: None,
         }
     }
