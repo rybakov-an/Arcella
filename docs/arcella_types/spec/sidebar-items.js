@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ComponentItemSpec"],"fn":["flatten_component_tree"]};

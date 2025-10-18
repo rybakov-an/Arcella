@@ -1,2 +1,2 @@
-createSrcSidebar('[["alme_proto",["",[],["lib.rs"]]],["arcella",["",[["alme",[],["commands.rs","mod.rs","server.rs"]],["cache",[],["mod.rs"]],["config",[],["mod.rs"]],["error",[],["mod.rs"]],["log",[],["mod.rs"]],["manifest",[],["mod.rs"]],["runtime",[],["mod.rs"]],["storage",[],["mod.rs"]]],["main.rs"]]],["arcella_cli",["",[],["main.rs"]]]]');
-//{"start":19,"fragment_lengths":[33,254,36]}
+createSrcSidebar('[["arcella",["",[["alme",[],["commands.rs","mod.rs","server.rs"]],["cache",[],["mod.rs"]],["config",[],["mod.rs"]],["error",[],["mod.rs"]],["log",[],["mod.rs"]],["manifest",[],["mod.rs"]],["runtime",[],["mod.rs"]],["storage",[],["mod.rs"]]],["main.rs"]]],["arcella_cli",["",[],["main.rs"]]],["arcella_types",["",[["alme",[["proto",[],["mod.rs"]]],["mod.rs"]],["spec",[],["mod.rs"]]],["lib.rs"]]],["arcella_wasmtime",["",[],["error.rs","from_wasmtime.rs","lib.rs"]]]]');
+//{"start":19,"fragment_lengths":[253,36,105,70]}

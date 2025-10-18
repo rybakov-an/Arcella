@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["handle_connection","run_server_loop","send_response","spawn_server"],"static":["MAX_READER_TIMEOUT","MAX_REQUEST_LENGTH"],"struct":["AlmeRequest","AlmeResponse"]};
+window.SIDEBAR_ITEMS = {"fn":["handle_connection","run_server_loop","send_response","spawn_server"],"static":["MAX_READER_TIMEOUT","MAX_REQUEST_LENGTH"]};

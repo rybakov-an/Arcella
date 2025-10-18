@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {};
+window.SIDEBAR_ITEMS = {"enum":["IsolationMode"],"fn":["validate_compatibility","validate_isolation_constraints","validate_module_id"],"struct":["ComponentBundle","ComponentCapabilities","ComponentManifest","ComponentManifestWrapper","DeploymentOverrides","DeploymentSpec","DeploymentSpecWrapper","DeploymentTemplate","DeploymentTemplateWrapper","FullDeployment","ResourceRequirements","StartupConfig"]};

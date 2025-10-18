@@ -36,7 +36,7 @@
 <a href=#36 id=36 data-nosnippet>36</a><span class="kw">use </span>tokio::sync::{RwLock, broadcast};
 <a href=#37 id=37 data-nosnippet>37</a><span class="kw">use </span>tokio::time::{timeout, Duration <span class="kw">as </span>TokioDuration};
 <a href=#38 id=38 data-nosnippet>38</a>
-<a href=#39 id=39 data-nosnippet>39</a><span class="kw">pub use </span>alme_proto::{AlmeRequest, AlmeResponse};
+<a href=#39 id=39 data-nosnippet>39</a><span class="kw">use </span>arcella_types::alme::proto::{AlmeRequest, AlmeResponse};
 <a href=#40 id=40 data-nosnippet>40</a>
 <a href=#41 id=41 data-nosnippet>41</a><span class="kw">use </span><span class="kw">crate</span>::runtime::ArcellaRuntime;
 <a href=#42 id=42 data-nosnippet>42</a><span class="kw">use </span><span class="kw">crate</span>::error::{ArcellaError, <span class="prelude-ty">Result</span> <span class="kw">as </span>ArcellaResult};
@@ -297,7 +297,7 @@
 <a href=#297 id=297 data-nosnippet>297</a>
 <a href=#298 id=298 data-nosnippet>298</a>    <span class="kw">use </span>tempfile::TempDir;
 <a href=#299 id=299 data-nosnippet>299</a>
-<a href=#300 id=300 data-nosnippet>300</a>    <span class="kw">use </span>alme_proto::{AlmeResponse};
+<a href=#300 id=300 data-nosnippet>300</a>    <span class="kw">use </span>arcella_types::alme::proto::AlmeResponse;
 <a href=#301 id=301 data-nosnippet>301</a>
 <a href=#302 id=302 data-nosnippet>302</a>    <span class="kw">use </span><span class="kw">crate</span>::runtime::ArcellaRuntime;
 <a href=#303 id=303 data-nosnippet>303</a>    <span class="kw">use </span><span class="kw">crate</span>::config::ArcellaConfig;

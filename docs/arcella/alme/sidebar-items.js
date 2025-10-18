@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["start"],"mod":["commands","server"],"struct":["AlmeRequest","AlmeResponse","AlmeServerHandle"]};
+window.SIDEBAR_ITEMS = {"fn":["start"],"mod":["commands","server"],"struct":["AlmeServerHandle"]};

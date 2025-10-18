@@ -1,2 +1,2 @@
-window.ALL_CRATES = ["alme_proto","arcella","arcella_cli"];
-//{"start":21,"fragment_lengths":[12,10,14]}
+window.ALL_CRATES = ["arcella","arcella_cli","arcella_types","arcella_wasmtime"];
+//{"start":21,"fragment_lengths":[9,14,16,19]}
