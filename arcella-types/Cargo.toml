@@ -1,0 +1,13 @@
+# arcella/arcella-types/Cargo.toml
+[package]
+name = "arcella-types"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+description = "Arcella types library"
+repository = "https://github.com/ArcellaTeam/arcella/"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
+
