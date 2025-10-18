@@ -162,11 +162,6 @@ arcella/                              # Корень проекта (workspace)
 ├── LICENSE-APACHE
 ├── LICENSE-MIT
 │
-├── alme-proto/                       # 📦 Общий crate: протокол ALME
-│   ├── Cargo.toml
-│   └── src/
-│       └── lib.rs                    # AlmeRequest, AlmeResponse
-│
 ├── arcella/                          # 🧠 Основной демон (платформа)
 │   ├── Cargo.toml
 │   └── src/
@@ -185,6 +180,24 @@ arcella/                              # Корень проекта (workspace)
 │   ├── Cargo.toml
 │   └── src/
 │       └── main.rs                   # Точка входа CLI
+│
+├── arcella-types/                    # Библиотека типов
+│   ├── Cargo.toml
+│   └── src/
+│       ├── lib.rs                    # Точка входа библиотеки
+│       ├── alme/                     #
+│       │   ├── mod.rs                #
+│       │   └── proto                 #
+│       │       └── mod.rs            #
+│       └── spec/                     #
+│           └── mod.rs                #
+│
+├── arcella-wasmtime/                 # Библиотека связи с wasmtime
+│   ├── Cargo.toml
+│   └── src/
+│       ├── lib.rs                    # Точка входа библиотеки
+│       ├── error.rs                  # Типы ошибок
+│       └── from_wasmtime.rs          # 
 │
 ├── bin/
 │   └── arcella-worker.rs             # Отдельный бинарник для изолированных компонентов
