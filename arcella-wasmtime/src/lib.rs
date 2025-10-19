@@ -15,8 +15,10 @@
 //! It is intended for use by the Arcella runtime and CLI tools that need to
 //! inspect WebAssembly components using Wasmtime as the engine.
 
-mod error;
+pub mod error;
 mod from_wasmtime;
+pub mod manifest;
 
 pub use error::{ArcellaWasmtimeError, Result};
 pub use from_wasmtime::{ComponentItemSpecExt, ComponentTypeExt};
+pub use manifest::ComponentManifestExt;

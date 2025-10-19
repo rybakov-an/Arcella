@@ -7,6 +7,7 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use std::path::PathBuf;
 use thiserror::Error;
 
 /// Result type alias for `arcella-wasmtime` operations.
@@ -15,11 +16,23 @@ pub type Result<T> = std::result::Result<T, ArcellaWasmtimeError>;
 /// Errors that can occur during Wasmtime-to-Arcella conversion.
 #[derive(Error, Debug)]
 pub enum ArcellaWasmtimeError {
+    #[error("Component introspection error: {0}")]
+    Introspection(String),
+
+    /// IO error with associated path for better diagnostics
+    #[error("I/O error at {path:?}: {source}")]
+    IoWithPath {
+        source: std::io::Error,
+        path: PathBuf,
+    },
+    
+    /// Invalid or missing module manifest.
+    #[error("Manifest error: {0}")]
+    Manifest(String),
+
     #[error("Wasmtime error: {0}")]
     Wasmtime(#[from] wasmtime::Error),
 
-    #[error("Component introspection error: {0}")]
-    Introspection(String),
 }
 
 impl From<String> for ArcellaWasmtimeError {
