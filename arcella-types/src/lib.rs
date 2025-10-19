@@ -8,4 +8,5 @@
 // except according to those terms.
 
 pub mod alme;
+pub mod manifest;
 pub mod spec;

@@ -192,3 +192,33 @@ fn flatten_component_tree_recursive(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_serialize_deserialize_spec() {
+        let spec = ComponentItemSpec::ComponentFunc {
+            params: vec![("msg".to_string(), "string".to_string())],
+            results: vec!["bool".to_string()],
+        };
+
+        let json = serde_json::to_string(&spec).unwrap();
+        let restored: ComponentItemSpec = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(spec, restored);
+    }
+
+    #[test]
+    fn test_deserialize_map() {
+        let json = r#"{
+            "handler": { "func": { "params": [], "results": ["string"] } },
+            "logger": { "unknown": {} }
+        }"#;
+
+        let map: HashMap<String, ComponentItemSpec> = serde_json::from_str(json).unwrap();
+        assert!(map.contains_key("handler"));
+        assert!(matches!(map.get("logger"), Some(ComponentItemSpec::Unknown { .. })));
+    }
+}
