@@ -25,273 +25,22 @@
 //!    This file is **created by administrators** for specific deployment scenarios.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use regex::Regex;
 use std::sync::OnceLock;
-use wasmtime::{
-    Engine,
-    component::{
-        Component, 
-        ComponentType,
-        types::{
-            ComponentItem,
-        },
-    }
-};
 
-use arcella_types::spec::{self, ComponentItemSpec};
-use arcella_wasmtime::ComponentItemSpecExt;
+use arcella_types::{
+    manifest::ComponentManifest
+};
+use arcella_wasmtime::{
+    error::ArcellaWasmtimeError,
+    ComponentManifestExt
+};
 
 use crate::error::{ArcellaError, Result as ArcellaResult};
 
 // ================================
 // 1. COMPONENT MANIFEST (portable)
 // ================================
-
-/// Describes the intrinsic properties of a WebAssembly module.
-///
-/// This manifest is **environment-agnostic** and focuses on identity and interface contracts.
-/// For Component Model modules, much of this can be inferred from the binary.
-/// For WASI modules, it must be provided externally via `component.toml`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct ComponentManifest {
-    /// Human-readable name of the module (e.g., `"http-logger"`).
-    ///
-    /// Must be non-empty and unique within a versioned context.
-    pub name: String,
-
-    /// Semantic version of the module (e.g., `"0.1.0"`).
-    ///
-    /// Used for dependency resolution and hot updates.
-    pub version: String,
-
-    /// Short description (optional).
-    #[serde(default)]
-    pub description: Option<String>,
-
-    /// Tree of WIT interfaces this module **exports** to other components.
-    ///
-    /// Each entry must follow the format: `namespace:interface@version`
-    /// (e.g., `"logger:log@1.0"`, `"wasi:http/incoming-handler@0.2.0"`).
-    #[serde(default)]
-    pub exports: HashMap<String, ComponentItemSpec>,
-
-    /// Tree of WIT interfaces this module **imports** from the environment.
-    ///
-    /// Format is identical to `exports`. These interfaces must be provided
-    /// by the runtime or other modules at link time.
-    #[serde(default)]
-    pub imports: HashMap<String, ComponentItemSpec>,
-
-    /// Component capabilities and requirements
-    #[serde(default)]
-    pub capabilities: ComponentCapabilities,
-
-    // ... other metadata fields
-}
-
-impl ComponentManifest {
-    /// Attempts to load a `component.toml` file next to the given `.wasm` path.
-    ///
-    /// Returns `Ok(None)` if the file does not exist (allowed for Component Model modules).
-    /// Returns an error only on I/O or parse failure.
-    pub fn from_component_toml(wasm_path: &Path) -> ArcellaResult<Option<Self>> {
-        let manifest_path = wasm_path.with_file_name("component.toml");
-        if !manifest_path.exists() {
-            return Ok(None);
-        }
-
-        let content = std::fs::read_to_string(&manifest_path)
-            .map_err(|e| ArcellaError::IoWithPath(e, manifest_path))?;
-
-        let wrapper: ComponentManifestWrapper =
-            toml::from_str(&content).map_err(|e| ArcellaError::Manifest(e.to_string()))?;
-
-        let manifest = wrapper.component;
-        manifest.validate()?;
-        
-        Ok(Some(manifest))
-    }
-
-    /// Extracts component metadata directly from a WebAssembly Component binary.
-    ///
-    /// This function:
-    /// - Only works with **WebAssembly Components** (not core Wasm or WASI preview1 modules).
-    /// - Extracts imports and exports in the format `namespace:interface`.
-    /// - Does **not** include version (`@x.y`) — this must be provided via `component.toml`
-    ///   or inferred from file naming convention if needed later.
-    /// - Requires a valid `name` and `version` — since they are not stored in Wasm,
-    ///   this function returns an error. In practice, you should derive them from
-    ///   the filename (e.g., `http-logger@0.1.0.wasm`) or require `component.toml`.
-    ///
-    /// For MVP v0.2.3, we assume that if `component.toml` is missing,
-    /// the filename encodes `name@version`.
-    pub fn from_wasm(engine: &Engine, wasm_path: &Path) -> ArcellaResult<Self> {
-
-        if !wasm_path.exists() {
-            return Err(ArcellaError::IoWithPath(
-                std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    format!("File not found: {:?}", wasm_path)
-                ),
-                wasm_path.into(),
-            ));
-        }
-
-        let file_stem = wasm_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .ok_or_else(|| ArcellaError::Manifest("Invalid .wasm filename".into()))?;        
-
-        if !validate_module_id(file_stem) {
-            return Err(ArcellaError::Manifest(
-                "Filename must be 'name@version.wasm' for components without component.toml".into()
-            ));
-        }
-
-        let (name, version) = file_stem
-            .split_once('@')
-            .ok_or_else(|| ArcellaError::Manifest("Expected 'name@version' format".into()))?;
-
-        let component = Component::from_file(engine, &wasm_path)
-            .map_err(ArcellaError::Wasmtime)?;
-        
-        let component_type = component.component_type();
-
-        let exports: HashMap<String, ComponentItemSpec> = component_type
-            .exports(engine)
-            .map(|(name, item)| {
-                let spec = item.to_spec(engine).unwrap_or_else(|e| {
-                    ComponentItemSpec::Unknown {
-                        debug: Some(format!("Export '{}': {:?}", name, e)),
-                    }
-                });
-                (name.into(), spec)
-            })
-            .collect();
-
-        let imports: HashMap<String, ComponentItemSpec> = component_type
-            .imports(engine)
-            .map(|(name, item)| {
-                let spec = item.to_spec(engine).unwrap_or_else(|e| {
-                    ComponentItemSpec::Unknown {
-                        debug: Some(format!("Import '{}': {:?}", name, e)),
-                    }
-                });
-                (name.into(), spec)
-            })
-            .collect();
-
-        let manifest = Self {
-            name: name.into(),
-            version: version.into(),
-            description: None,
-            exports: exports,
-            imports: imports,
-            capabilities: ComponentCapabilities::default(),
-        };
-
-        manifest.validate()?;
-        Ok(manifest)
-
-    }
-
-    /// Validates that a string is a valid WIT interface identifier (without version).
-    fn validate_interface_name_for_wit(s: &str) -> bool {
-        static RE: OnceLock<Regex> = OnceLock::new();
-        let re = RE.get_or_init(|| {
-            Regex::new(r"^[a-zA-Z0-9_-]+(:[a-zA-Z0-9_/-]+)?$").unwrap()
-        });
-        re.is_match(s)
-    }
-
-    /// Validates semantic correctness of the component manifest.
-    pub fn validate(&self) -> ArcellaResult<()> {
-        if self.name.is_empty() {
-            return Err(ArcellaError::Manifest("Component name must not be empty".into()));
-        }
-        if self.version.is_empty() {
-            return Err(ArcellaError::Manifest("Component version must not be empty".into()));
-        }
-
-        // Validate name format (alphanumeric, hyphens, underscores)
-        if !Self::validate_name_format(&self.name) {
-            return Err(ArcellaError::Manifest(
-                "Component name must contain only alphanumeric characters, hyphens, and underscores".into()
-            ));
-        }
-
-        // Validate version format (semver-like)
-        if !Self::validate_version_format(&self.version) {
-            return Err(ArcellaError::Manifest(
-                "Component version must follow semantic versioning format (e.g., 0.1.0)".into()
-                        ));
-        }
-
-        Ok(())
-    }
-
-    /// Validates component name format
-    fn validate_name_format(name: &str) -> bool {
-        static RE: OnceLock<Regex> = OnceLock::new();
-        let re = RE.get_or_init(|| {
-            Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap()
-        });
-        re.is_match(name)
-    }
-
-    /// Validates version format (simplified semver)
-    fn validate_version_format(version: &str) -> bool {
-        static RE: OnceLock<Regex> = OnceLock::new();
-        let re = RE.get_or_init(|| {
-            Regex::new(r"^\d+\.\d+\.\d+([+-][a-zA-Z0-9.-]+)?$").unwrap()
-        });
-        re.is_match(version)
-    }
-
-    /// Validates that a string matches the expected WIT interface format.
-    fn validate_interface_format(s: &str) -> bool {
-        static RE_WITH_VERSION: OnceLock<Regex> = OnceLock::new();
-        static RE_WITHOUT_VERSION: OnceLock<Regex> = OnceLock::new();
-        
-        let re1 = RE_WITH_VERSION.get_or_init(|| {
-            Regex::new(r"^[a-zA-Z0-9_-]+:[a-zA-Z0-9_/-]+@[a-zA-Z0-9.+_-]+$").unwrap()
-        });
-        let re2 = RE_WITHOUT_VERSION.get_or_init(|| {
-            Regex::new(r"^[a-zA-Z0-9_-]+:[a-zA-Z0-9_/-]+$").unwrap()
-        });
-        
-        re1.is_match(s) || re2.is_match(s)
-    }
-
-    /// Returns the canonical module identifier: `name@version`.
-    ///
-    /// This ID is used internally by the runtime to uniquely reference a module.
-    pub fn id(&self) -> String {
-        format!("{}@{}", self.name, self.version)
-    }
-}
-
-/// Component capabilities and requirements
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct ComponentCapabilities {
-    /// Required WASI preview2 capabilities
-    #[serde(default)]
-    pub wasi: Vec<String>,
-    
-    /// Required filesystem access paths
-    #[serde(default)]
-    pub filesystem: Vec<String>,
-    
-    /// Required network access
-    #[serde(default)]
-    pub network: Vec<String>,
-    
-    /// Environment variables needed
-    #[serde(default)]
-    pub environment: Vec<String>,
-}
 
 /// Wrapper to match TOML structure: `[component]`
 #[derive(Deserialize)]
@@ -363,9 +112,9 @@ impl DeploymentTemplate {
     /// Loads a deployment template from a TOML file.
     pub fn from_file(path: &Path) -> ArcellaResult<Self> {
         let content = std::fs::read_to_string(path)
-            .map_err(|e| ArcellaError::IoWithPath(e, path.into()))?;
+            .map_err(|e| ArcellaError::IoWithPath{source: e, path: path.into()})?;
         let wrapper: DeploymentTemplateWrapper =
-            toml::from_str(&content).map_err(|e| ArcellaError::Manifest(e.to_string()))?;
+            toml::from_str(&content).map_err(|e| ArcellaWasmtimeError::Manifest(e.to_string()))?;
         
         let template = wrapper.deployment;
         template.validate()?;
@@ -392,14 +141,16 @@ impl DeploymentTemplate {
         )?;
 
         if self.group.is_some() && self.isolation != IsolationMode::Worker {
-            return Err(ArcellaError::Manifest(
+            return Err(ArcellaWasmtimeError::Manifest(
                 "Group can only be specified for worker isolation".into(),
-            ));
+            ).into());
         }
 
         if let Some(ref group) = self.group {
             if !ComponentManifest::validate_name_format(group) {
-                return Err(ArcellaError::Manifest("Invalid group name format".into()));
+                return Err(ArcellaWasmtimeError::Manifest(
+                    "Invalid group name format".into()
+                ).into());
             }
         }
 
@@ -441,10 +192,10 @@ impl DeploymentSpec {
     /// Loads a deployment specification from a TOML file.
     pub fn from_file(path: &Path) -> ArcellaResult<Self> {
         let content = std::fs::read_to_string(path)
-            .map_err(|e| ArcellaError::IoWithPath(e, path.into()))?;
+            .map_err(|e| ArcellaError::IoWithPath{source: e, path: path.into()})?;
         
         let wrapper: DeploymentSpecWrapper =
-            toml::from_str(&content).map_err(|e| ArcellaError::Manifest(e.to_string()))?;
+            toml::from_str(&content).map_err(|e| ArcellaWasmtimeError::Manifest(e.to_string()))?;
         
         let spec = wrapper.deployment;
         spec.validate()?;
@@ -455,23 +206,27 @@ impl DeploymentSpec {
     /// Validates deployment specification.
     pub fn validate(&self) -> ArcellaResult<()> {
         if self.module_id.is_empty() {
-            return Err(ArcellaError::Manifest("Module ID must not be empty".into()));
+            return Err(ArcellaWasmtimeError::Manifest(
+                "Module ID must not be empty".into()
+            ).into());
         }
 
         if self.group.is_empty() {
-            return Err(ArcellaError::Manifest("Group must not be empty".into()));
+            return Err(ArcellaWasmtimeError::Manifest(
+                "Group must not be empty".into()
+            ).into());
         }
 
         if self.replicas == 0 {
-            return Err(ArcellaError::Manifest("Replicas must be at least 1".into()));
+            return Err(ArcellaWasmtimeError::Manifest(
+                "Replicas must be at least 1".into()
+            ).into());
         }
 
-        /// Validates that module_id follows `name@version` format.
-        /// Does NOT check if the component actually exists in storage.
         if !validate_module_id(&self.module_id) {
-            return Err(ArcellaError::Manifest(
+            return Err(ArcellaWasmtimeError::Manifest(
                 "Module ID must follow name@version format".into()
-            ));
+            ).into());
         }
 
         Ok(())
@@ -553,7 +308,9 @@ impl FullDeployment {
         )?;
 
         if self.isolation == IsolationMode::Main && self.replicas != 1 {
-            return Err(ArcellaError::Manifest("Main isolation supports only 1 replica".into()));
+            return Err(ArcellaWasmtimeError::Manifest(
+                "Main isolation supports only 1 replica".into()
+            ).into());
         }
 
         Ok(())
@@ -632,12 +389,16 @@ impl ResourceRequirements {
     pub fn validate(&self) -> ArcellaResult<()> {
         if let Some(mem) = self.memory_mb {
             if mem == 0 {
-                return Err(ArcellaError::Manifest("Memory must be at least 1 MB".into()));
+                return Err(ArcellaWasmtimeError::Manifest(
+                    "Memory must be at least 1 MB".into()
+                ).into());
             }
         }
         if let Some(fuel) = self.fuel {
             if fuel == 0 {
-                return Err(ArcellaError::Manifest("Fuel must be at least 1".into()));
+                return Err(ArcellaWasmtimeError::Manifest(
+                    "Fuel must be at least 1".into()
+                ).into());
             }
         }
         Ok(())
@@ -658,13 +419,13 @@ pub struct ComponentBundle {
 
 impl ComponentBundle {
     /// Loads a complete component bundle from a directory
-    pub fn from_wasm_path(engine: &Engine, wasm_path: &Path) -> ArcellaResult<Self> {
+    /*pub fn from_wasm_path(engine: &Engine, wasm_path: &Path) -> ArcellaResult<Self> {
 
         let component = if let Some(manifest) = ComponentManifest::from_component_toml(wasm_path)? {
             manifest
         } else {
             // TODO: в будущем — извлечение из .wasm
-            ComponentManifest::from_wasm(engine, wasm_path)?
+            manifest::component_manifest_from_wasm(engine, wasm_path)?
         };
                 
         let template = DeploymentTemplate::from_template_toml(wasm_path)?;
@@ -674,7 +435,7 @@ impl ComponentBundle {
             template,
             wasm_path: wasm_path.to_path_buf(),
         })
-    }
+    }*/
 
     /// Validates the entire bundle for consistency
     pub fn validate(&self) -> ArcellaResult<()> {
@@ -701,7 +462,9 @@ pub fn validate_compatibility(
 
     // Check if async component is deployed in sync mode
     if !component.exports.is_empty() && !deployment.r#async {
-        return Err(ArcellaError::Manifest("Component exports but deployment is sync".into()));
+        return Err(ArcellaWasmtimeError::Manifest(
+            "Component exports but deployment is sync".into()
+        ).into());
     }
 
     Ok(())
@@ -721,10 +484,14 @@ fn validate_isolation_constraints(
     r#async: bool,
 ) -> ArcellaResult<()> {
     if trusted && *isolation != IsolationMode::Main {
-        return Err(ArcellaError::Manifest("Only 'main' isolation can be trusted".into()));
+        return Err(ArcellaWasmtimeError::Manifest(
+            "Only 'main' isolation can be trusted".into()
+        ).into());
     }
     if *isolation == IsolationMode::Main && !r#async {
-        return Err(ArcellaError::Manifest("'main' isolation requires async = true".into()));
+        return Err(ArcellaWasmtimeError::Manifest(
+            "'main' isolation requires async = true".into()
+        ).into());
     }
     Ok(())
 }

@@ -145,6 +145,7 @@ dependencies = [
 name = "arcella-types"
 version = "0.1.0"
 dependencies = [
+ "regex",
  "serde",
  "serde_json",
 ]
@@ -154,8 +155,10 @@ name = "arcella-wasmtime"
 version = "0.1.0"
 dependencies = [
  "arcella-types",
+ "regex",
  "thiserror 2.0.17",
  "wasmtime",
+ "wasmtime-wasi",
 ]
 
 [[package]]
