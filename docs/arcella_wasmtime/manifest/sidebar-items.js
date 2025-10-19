@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["component_manifest_from_wasm"],"trait":["ComponentManifestExt"]};

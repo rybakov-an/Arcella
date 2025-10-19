@@ -277,7 +277,7 @@
 <a href=#277 id=277 data-nosnippet>277</a>) -&gt; ArcellaResult&lt;()&gt; {
 <a href=#278 id=278 data-nosnippet>278</a>    <span class="macro">tracing::trace!</span>(<span class="string">"Send response"</span>);
 <a href=#279 id=279 data-nosnippet>279</a>    <span class="kw">let </span><span class="kw-2">mut </span>json = serde_json::to_vec(response)
-<a href=#280 id=280 data-nosnippet>280</a>        .map_err(|e| ArcellaError::Serialization(e.to_string()))<span class="question-mark">?</span>;
+<a href=#280 id=280 data-nosnippet>280</a>        .map_err(|e| ArcellaError::Json(e))<span class="question-mark">?</span>;
 <a href=#281 id=281 data-nosnippet>281</a>    json.push(<span class="string">b'\n'</span>);
 <a href=#282 id=282 data-nosnippet>282</a>    <span class="kw">let _ </span>= stream.write_all(<span class="kw-2">&amp;</span>json).<span class="kw">await</span>.map_err(|e| {
 <a href=#283 id=283 data-nosnippet>283</a>        <span class="macro">tracing::error!</span>(<span class="string">"Failed to send response: {}"</span>, e);
