@@ -9,7 +9,9 @@ repository = "https://github.com/ArcellaTeam/arcella/"
 
 [dependencies]
 arcella-types = { path = "../arcella-types", version = "0.1.0" }
-wasmtime = "37"
+regex = "1.12.2"
 thiserror = "2.0.17"
+wasmtime = "37"
+wasmtime-wasi = "37"
 
 

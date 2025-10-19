@@ -176,7 +176,7 @@ fn load_tracing_config(path: &PathBuf) -> ArcellaResult<TracingConfig> {
     }
 
     let contents = fs::read_to_string(path)
-        .map_err(|e| ArcellaError::IoWithPath(e, path.clone()))?;
+        .map_err(|e| ArcellaError::IoWithPath{source: e, path: path.clone()})?;
     toml::from_str(&contents)
         .map_err(|e| ArcellaError::Config(format!("tracing.cfg: {}", e)))
 }

@@ -7,13 +7,15 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use arcella_types::spec::ComponentItemSpec;
+//! Conversion utilities from `wasmtime::component::types` to `arcella_types::spec`.
+
 use std::collections::HashMap;
 use wasmtime::{
     component::types::{self, ComponentItem},
     Engine,
 };
 
+use arcella_types::spec::ComponentItemSpec;
 use crate::Result;
 
 const MAX_RECURSION_DEPTH: usize = 32;

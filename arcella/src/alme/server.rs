@@ -277,7 +277,7 @@ async fn send_response(
 ) -> ArcellaResult<()> {
     tracing::trace!("Send response");
     let mut json = serde_json::to_vec(response)
-        .map_err(|e| ArcellaError::Serialization(e.to_string()))?;
+        .map_err(|e| ArcellaError::Json(e))?;
     json.push(b'\n');
     let _ = stream.write_all(&json).await.map_err(|e| {
         tracing::error!("Failed to send response: {}", e);

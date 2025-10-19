@@ -16,10 +16,14 @@ use std::{
 use time::OffsetDateTime;
 use tokio::sync::{RwLock, broadcast};
 
+use arcella_types::{
+    manifest::ComponentManifest,
+};
+
 use crate::{storage, cache};
 use crate::config::ArcellaConfig;
 use crate::error::{ArcellaError, Result as ArcellaResult};
-use crate::manifest::{ComponentManifest};
+
 
 struct ArcellaRuntimeEnvironment {
     pub pid: u32,
@@ -93,9 +97,9 @@ impl ArcellaRuntime{
         &mut self,
         wasm_path: &PathBuf,
     ) -> ArcellaResult<()> {
-        let component = ComponentManifest::from_component_toml(wasm_path)?
+        /*let component = ComponentManifest::from_component_toml(wasm_path)?
             .ok_or_else(|| ArcellaError::Manifest("component.toml required for WASI modules".into()))?;
-        component.validate()?;
+        component.validate()?;*/
 
         //let deployment = DeploymentProfile::from_file(wasm_path)?;
         //deployment.validate()?;
