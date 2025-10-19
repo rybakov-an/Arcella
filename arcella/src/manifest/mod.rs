@@ -27,13 +27,17 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use wasmtime::{
+    Engine,
+};
 
 use arcella_types::{
     manifest::ComponentManifest
 };
 use arcella_wasmtime::{
+    ComponentManifestExt,
     error::ArcellaWasmtimeError,
-    ComponentManifestExt
+    manifest,
 };
 
 use crate::error::{ArcellaError, Result as ArcellaResult};
@@ -46,6 +50,23 @@ use crate::error::{ArcellaError, Result as ArcellaResult};
 #[derive(Deserialize)]
 struct ComponentManifestWrapper {
     component: ComponentManifest,
+}
+
+pub fn load_component_manifest_from_toml(path: &Path) -> ArcellaResult<Option<ComponentManifest>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| ArcellaError::IoWithPath { source: e, path: path.into() })?; 
+
+    let wrapper: ComponentManifestWrapper = toml::from_str(&content)
+        .map_err(|e| ArcellaWasmtimeError::Manifest(e.to_string()))?;
+
+    let manifest = wrapper.component;
+    manifest.validate()?;
+
+    Ok(Some(manifest))                      
 }
 
 // ==================================
@@ -419,23 +440,31 @@ pub struct ComponentBundle {
 
 impl ComponentBundle {
     /// Loads a complete component bundle from a directory
-    /*pub fn from_wasm_path(engine: &Engine, wasm_path: &Path) -> ArcellaResult<Self> {
+    pub fn from_wasm_path(engine: &Engine, wasm_path: &Path) -> ArcellaResult<Self> {
 
-        let component = if let Some(manifest) = ComponentManifest::from_component_toml(wasm_path)? {
+        let component = if let Some(manifest) = load_component_manifest_from_toml(
+            &wasm_path.with_file_name("component.toml")
+        )? {
             manifest
         } else {
-            // TODO: в будущем — извлечение из .wasm
+            // 2. If component.toml is missing, try to extract from .wasm
+            // (Requires arcella_wasmtime crate)
             manifest::component_manifest_from_wasm(engine, wasm_path)?
         };
                 
         let template = DeploymentTemplate::from_template_toml(wasm_path)?;
 
-        Ok(Self {
+        let bundle = Self {
             component,
             template,
             wasm_path: wasm_path.to_path_buf(),
-        })
-    }*/
+        };
+
+        bundle.validate()?;
+
+        Ok(bundle)
+
+    }
 
     /// Validates the entire bundle for consistency
     pub fn validate(&self) -> ArcellaResult<()> {
@@ -581,6 +610,38 @@ mod tests {
         let wrapper: Result<ComponentManifestWrapper, _> = toml::from_str(toml);
         assert!(wrapper.is_ok());
         assert!(wrapper.unwrap().component.validate().is_err());
-    }    
+    } 
+
+    #[test]
+    fn test_load_component_manifest_from_toml() {
+        let temp_dir = TempDir::new().unwrap();
+        let toml_path = temp_dir.path().join("component.toml");
+
+        let toml_content = r#"
+            [component]
+            name = "test-component"
+            version = "0.1.0"
+            description = "A test component"
+            exports = ["foo:bar@1.0"]
+            imports = ["wasi:cli@0.2.0"]
+        "#;
+
+        fs::write(&toml_path, toml_content).unwrap();
+
+        let result = load_component_manifest_from_toml(&toml_path).unwrap();
+        assert!(result.is_some());
+
+        let manifest = result.unwrap();
+        assert_eq!(manifest.name, "test-component");
+        assert_eq!(manifest.version, "0.1.0");
+        assert_eq!(manifest.description, Some("A test component".to_string()));
+    }
+
+    #[test]
+    fn test_load_component_manifest_from_toml_not_found() {
+        let fake_path = Path::new("/nonexistent/component.toml");
+        let result = load_component_manifest_from_toml(fake_path).unwrap();
+        assert!(result.is_none());
+    }       
     
 }
