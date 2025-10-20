@@ -25,20 +25,28 @@ The configuration directory is always located at `base_dir.join("config")`. All 
 -   If the `config_template` subdirectory does not exist within `config_dir`, Arcella will create it and generate a default template file named `arcella.template.toml` inside it. This template serves as an example for users.
 -   **Crucially, the Arcella executable itself will *never* modify the `arcella.toml` file.**
 
-## 4. Composite Configuration Loading
+## 4. Loading Composite Configuration (refined order)
 
-Arcella builds a single, unified configuration object by merging content from multiple sources in a specific order of priority. Lower-priority sources supplement, but do *not* override, higher-priority sources.
+Arcella assembles a single unified configuration object by recursively merging content from multiple sources. **Sources with higher priority supplement, but do *not* override, values from lower-priority sources.** If a value is already set by a higher-priority source, it is **preserved**, and any attempt to redefine it is logged as a warning.
 
-The merge order is:
+The order *from lowest to highest priority* (where later steps have a stronger influence on the result) is:
 
-1.  **`arcella.toml`**: The content of the main configuration file.
-2.  **Explicit Files**: The content of all `.toml` files listed in `arcella.toml` (under a specific configuration key, e.g., `includes.files`) and located within `config_dir`.
-3.  **Explicit Directories**: The content of all `.toml` files found within subdirectories of `config_dir`. The names of these subdirectories must be listed in `arcella.toml` (under a specific configuration key, e.g., `includes.dirs`).
+1.  **Contents of subdirectories listed in `includes` (depth 1):**
+    -   First, consider **all** `.toml` files (excluding `*.template.toml`) in the **subdirectories** listed in the `includes` array in `arcella.toml`.
+    -   Then, **recursively** process files in subdirectories *of those* subdirectories (depth 2).
+    -   Then, **recursively** process files in subdirectories *of the previous* level (depth 3).
+    -   **Rule:** Within each level (depth), files are processed in **lexicographical order** of their names. Within a single file, values are processed in the order they appear.
+    -   **Note:** Processing of nested `.toml` files *referenced inside* files from `includes` is not performed. Only files directly located in the specified subdirectories, up to 3 levels deep, are considered.
 
-**Rules:**
+2.  **Nested `.toml` files listed in `includes`:**
+    -   Then, consider the **`.toml` files explicitly listed** in the `includes` array in `arcella.toml`.
+    -   **Rule:** Files are processed in **lexicographical order** of their names within the `includes` array. Within a single file, values are processed in the order they appear.
 
--   Files named `*.template.toml` are **excluded** from the configuration merge, even if explicitly listed in `arcella.toml`.
--   The maximum depth of subdirectory exploration within `config_dir` is limited to 3 levels, as defined in `arcella.toml`.
+3.  **Main configuration file (`arcella.toml`):**
+    -   Finally, the content of `arcella.toml` is merged with the already assembled result.
+    -   **Rule:** Values from `arcella.toml` have the **highest priority**. Any keys defined here will *not be overridden* by values from previous sources, but may *supplement* them.
+
+**Result:** The resulting configuration object is built such that `arcella.toml` defines base and final values, which can be *supplemented* (but not overwritten back) by values from files and subdirectories specified in `includes`, taking into account nesting depth and lexicographical order.
 
 ## 5. Configuration Integrity Check
 
