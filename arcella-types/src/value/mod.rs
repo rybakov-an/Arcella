@@ -46,7 +46,8 @@ use std::collections::HashMap;
 /// let array_val = Value::Array(vec![Value::String("item1".to_string()), Value::Null]);
 /// map.insert("key3".to_string(), array_val);
 /// let complex_val = Value::Map(map);
-/// ```#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     /// A sequence of `Value`s.
     Array(Vec<Value>),
