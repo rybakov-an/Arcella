@@ -31,6 +31,12 @@ pub enum ArcellaUtilsError {
         path: PathBuf,
     },
 
+    /// Path not found
+    #[error("Path not found: {path:?}")]
+    PathNotFound {
+        path: PathBuf,
+    },
+
     /// TOML error
     #[error("TOML error: {0}")]
     TOML(String),

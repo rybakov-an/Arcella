@@ -234,12 +234,13 @@ pub async fn find_toml_files_in_dir(dir_path: &Path) -> ArcellaResult<Option<Vec
 ///
 /// This function:
 /// 1. Resolves all patterns in `includes` to absolute paths based on `config_dir`.
-/// 2. Separates resolved paths into files and directories.
-/// 3. For each resolved file, checks if it's a valid `.toml` file (not `.template.toml`) and includes it.
-/// 4. For each resolved directory, finds all valid `.toml` files directly within it (non-recursive).
-/// 5. Returns a sorted vector of unique file paths.
+/// 2. Concurrently checks the existence and type (file/directory) of all resolved paths.
+/// 3. Separates resolved paths into files and directories.
+/// 4. For each resolved file, checks if it's a valid `.toml` file (not `.template.toml`) and includes it.
+/// 5. For each resolved directory, finds all valid `.toml` files directly within it (non-recursive).
+/// 6. Returns a sorted vector of unique file paths.
 ///
-/// Non-existent files or directories, as well as non-`.toml` files, are silently ignored.
+/// If a resolved path in `includes` does not exist (neither file nor directory), an error is returned.
 /// Duplicate paths (e.g., from overlapping patterns) are removed.
 ///
 /// # Arguments
@@ -250,21 +251,44 @@ pub async fn find_toml_files_in_dir(dir_path: &Path) -> ArcellaResult<Option<Vec
 /// # Returns
 ///
 /// A `Result` containing a sorted vector of unique `PathBuf`s pointing to valid `.toml` files,
-/// or an error if an I/O issue occurs during directory scanning.
-pub async fn collect_includes(
+/// or an error if an I/O issue occurs during directory scanning or if a path in `includes` does not exist.
+pub async fn collect_toml_includes(
     includes: &Vec<String>,
     config_dir: &Path,
 ) -> ArcellaResult<Vec<PathBuf>> {
     let all_paths = resolve_include_paths(includes, config_dir)?;
 
+    // Concurrently check the metadata for all resolved paths
+    let metadata_futures: Vec<_> = all_paths
+        .iter()
+        .map(|path| async move {
+            let metadata_res = fs::metadata(path).await;
+            (path.clone(), metadata_res)
+        })
+        .collect();
+
+    let metadata_results = future::join_all(metadata_futures).await;
+
     let mut include_files = Vec::new();
     let mut include_dirs = Vec::new();
 
-    for path in all_paths {
-        if path.is_file() {
-            include_files.push(path);
-        } else if path.is_dir() {
-            include_dirs.push(path);
+    for (path, metadata_res) in metadata_results {
+        match metadata_res {
+            Ok(metadata) => {
+                if metadata.is_file() {
+                    include_files.push(path);
+                } else if metadata.is_dir() {
+                    include_dirs.push(path);
+                } else {
+                    // Path exists but is neither a file nor a directory (e.g., symlink to nothing, special file)
+                    // Treat it as not found.
+                    return Err(ArcellaUtilsError::PathNotFound { path: path.into() });
+                }
+            }
+            Err(_) => {
+                // fs::metadata failed, meaning the path does not exist or is inaccessible.
+                return Err(ArcellaUtilsError::PathNotFound { path: path.into() });
+            }
         }
     }
 
@@ -428,11 +452,11 @@ mod tests {
         }
     }    
 
-    mod collect_includes_tests {
+    mod collect_toml_includes_tests {
         use super::*;
 
         #[tokio::test]
-        async fn test_collect_includes_mixed() {
+        async fn test_collect_toml_includes_mixed() {
             let temp_dir = TempDir::new().unwrap();
             let config_dir = temp_dir.path();
 
@@ -463,38 +487,23 @@ mod tests {
             fs::write(&sub_template_path, "# Sub Template file").unwrap();
 
             let includes = vec![
-                "config1.toml".to_string(),           // file in config_dir
-                "nonexistent.toml".to_string(),       // non-existent file (should be ignored?)
-                "sub/".to_string(),                   // directory
-                "config2.toml".to_string(),           // another file in config_dir
-                "sub/sub_config2.toml".to_string(),   // file in subdirectory
-                "not_toml.txt".to_string(),           // not a .toml file
-                "template.template.toml".to_string(), // .template.toml file
+                "config1.toml".to_string(),           // file in config_dir - OK
+                "sub/".to_string(),                   // directory - OK
+                "config2.toml".to_string(),           // another file in config_dir - OK
+                "sub/sub_config2.toml".to_string(),   // file in subdirectory - OK
             ];
 
-            let result = collect_includes(&includes, config_dir).await;
+            let result = collect_toml_includes(&includes, config_dir).await;
 
-            // Expect the function to *not* fail due to non-existent file or non .toml file.
-            // A non-existent file in `includes` will be resolved to a path, but will not pass `is_file` or `is_dir` in resolve_include_paths,
-            // and therefore will not be added to `include_files` or `include_dirs`. So it will be ignored.
-            // The file `not_toml.txt` will be resolved, but `is_valid_toml_file_path` will return false.
-            // The file `template.template.toml` will be resolved, but `is_valid_toml_file_path` will return false.
-            // The file `sub/sub_config2.toml` will be resolved, but `is_valid_toml_file_path` will return false if it doesn't exist as a file at the top level.
-            // BUT, if it's specified in `includes`, it will be processed as a file.
-            // Let's clarify: `sub/sub_config2.toml` is a path to a file specified in includes. resolve_include_paths will make it absolute.
-            // `fs::metadata` in `is_valid_toml_file_path` will check if it exists and is a file.
-            // `is_valid_toml_file_path` will check the .toml extension and not .template.toml -> true.
-            // So it should be included.
-
-            assert!(result.is_ok(), "collect_includes should not fail for non-existent or non-toml entries in includes");
+            // This should now succeed as all paths exist.
+            assert!(result.is_ok(), "collect_toml_includes should succeed when all paths in includes exist");
             let collected = result.unwrap();
 
             let mut expected_paths = vec![
                 config1_path,
                 config2_path,
-                sub_config1_path,
-                sub_config2_path,
-                // sub_dir.join("sub_config2.toml") already added above if it was included as a file in includes
+                sub_config1_path, // from find_toml_files_in_dir(sub_dir)
+                sub_config2_path, // from includes list
             ];
             expected_paths.sort(); // Sort the expected list
 
@@ -502,19 +511,19 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn test_collect_includes_empty_includes() {
+        async fn test_collect_toml_includes_empty_includes() {
             let temp_dir = TempDir::new().unwrap();
             let config_dir = temp_dir.path();
 
             let includes = vec![];
 
-            let result = collect_includes(&includes, config_dir).await.unwrap();
+            let result = collect_toml_includes(&includes, config_dir).await.unwrap();
 
             assert!(result.is_empty());
         }
 
         #[tokio::test]
-        async fn test_collect_includes_only_dirs() {
+        async fn test_collect_toml_includes_only_dirs() {
             let temp_dir = TempDir::new().unwrap();
             let config_dir = temp_dir.path();
 
@@ -543,12 +552,12 @@ mod tests {
             ];
             expected_paths.sort();
 
-            let result = collect_includes(&includes, config_dir).await.unwrap();
+            let result = collect_toml_includes(&includes, config_dir).await.unwrap();
             assert_eq!(result, expected_paths);
         }
 
         #[tokio::test]
-        async fn test_collect_includes_only_files() {
+        async fn test_collect_toml_includes_only_files() {
             let temp_dir = TempDir::new().unwrap();
             let config_dir = temp_dir.path();
 
@@ -572,12 +581,12 @@ mod tests {
             let mut expected_paths = vec![file1_path, file2_path];
             expected_paths.sort();
 
-            let result = collect_includes(&includes, config_dir).await.unwrap();
+            let result = collect_toml_includes(&includes, config_dir).await.unwrap();
             assert_eq!(result, expected_paths);
         }
 
         #[tokio::test]
-        async fn test_collect_includes_nonexistent_dir_in_includes() {
+        async fn test_collect_toml_includes_nonexistent_dir_in_includes() {
             let temp_dir = TempDir::new().unwrap();
             let config_dir = temp_dir.path();
 
@@ -586,15 +595,18 @@ mod tests {
             ];
 
             // resolve_include_paths will just create the path config_dir.join("nonexistent_dir/"), it does not check its existence.
-            // Then in collect_includes, path.is_dir() will return false for the non-existent directory.
-            // Therefore, it will not be added to include_dirs and will not be passed to find_toml_files_in_dir.
-            // collect_includes should return Ok(Vec::new()).
-            let result = collect_includes(&includes, config_dir).await.unwrap();
-            assert!(result.is_empty());
+            // Then in collect_toml_includes, fs::metadata(path) will be called and will fail.
+            // Therefore, it should return an error.
+            let result = collect_toml_includes(&includes, config_dir).await;
+            assert!(result.is_err());
+            match result.unwrap_err() {
+                ArcellaUtilsError::PathNotFound { .. } => {}, // OK
+                _ => panic!("Expected ArcellaError::PathNotFound"),
+            }
         }
 
         #[tokio::test]
-        async fn test_collect_includes_nonexistent_file_in_includes() {
+        async fn test_collect_toml_includes_nonexistent_file_in_includes() {
             let temp_dir = TempDir::new().unwrap();
             let config_dir = temp_dir.path();
 
@@ -603,15 +615,18 @@ mod tests {
             ];
 
             // resolve_include_paths will create the path config_dir.join("nonexistent_file.toml").
-            // Then in collect_includes, path.is_file() will return false for the non-existent file.
-            // Therefore, it will not be added to include_files and will not be checked via is_valid_toml_file_path.
-            // collect_includes should return Ok(Vec::new()).
-            let result = collect_includes(&includes, config_dir).await.unwrap();
-            assert!(result.is_empty());
+            // Then in collect_toml_includes, fs::metadata(path) will be called and will fail.
+            // Therefore, it should return an error.
+            let result = collect_toml_includes(&includes, config_dir).await;
+            assert!(result.is_err());
+            match result.unwrap_err() {
+                ArcellaUtilsError::PathNotFound { .. } => {}, // OK
+                _ => panic!("Expected ArcellaError::PathNotFound"),
+            }
         }
 
         #[tokio::test]
-        async fn test_collect_includes_duplicate_paths() {
+        async fn test_collect_toml_includes_duplicate_paths() {
             let temp_dir = TempDir::new().unwrap();
             let config_dir = temp_dir.path();
 
@@ -640,12 +655,12 @@ mod tests {
             ];
             expected_paths.sort();
 
-            let result = collect_includes(&includes, config_dir).await.unwrap();
+            let result = collect_toml_includes(&includes, config_dir).await.unwrap();
             assert_eq!(result, expected_paths);
         }
 
         #[tokio::test]
-        async fn test_collect_includes_case_insensitive_extension() {
+        async fn test_collect_toml_includes_case_insensitive_extension() {
             let temp_dir = TempDir::new().unwrap();
             let config_dir = temp_dir.path();
 
@@ -669,7 +684,7 @@ mod tests {
             ];
             expected_paths.sort();
 
-            let result = collect_includes(&includes, config_dir).await.unwrap();
+            let result = collect_toml_includes(&includes, config_dir).await.unwrap();
             assert_eq!(result, expected_paths);
         }
     }   
