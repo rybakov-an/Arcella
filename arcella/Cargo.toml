@@ -8,6 +8,7 @@ repository = "https://github.com/ArcellaTeam/arcella"
 
 [dependencies]
 arcella-types = { path = "../arcella-types" }
+arcella-fs-utils = { path = "../arcella-fs-utils" }
 arcella-wasmtime = { path = "../arcella-wasmtime" }
 wasmtime = "37"
 wasmtime-wasi = "37"

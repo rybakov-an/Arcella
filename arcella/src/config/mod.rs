@@ -17,6 +17,12 @@ use serde::Deserialize;
 use tokio::fs;
 use toml_edit::{DocumentMut, Item as TomlItem, Value as TomlValue, Array as TomlArray};
 
+use arcella_types::{
+    value::Value as TValue
+};
+use arcella_fs_utils as fs_utils;
+use arcella_fs_utils::{ValueExt};
+
 use crate::error::{ArcellaError, Result as ArcellaResult};
 
 #[derive(Deserialize, Default)]
@@ -137,7 +143,7 @@ async fn get_current_mtimes(paths: &[PathBuf]) -> ArcellaResult<HashMap<PathBuf,
 pub async fn load() -> ArcellaResult<ArcellaConfig> {
     
     // 1. Find base_dir
-    let base_dir = find_base_dir().await?;
+    let base_dir = fs_utils::find_base_dir().await?;
 
     // 2. Set config_dir
     let config_dir = base_dir.join("config");    
@@ -192,7 +198,6 @@ pub async fn load() -> ArcellaResult<ArcellaConfig> {
         integrity_check_paths: vec![],
     })
 }
-
 
 pub fn collect_paths_recursive(
     item: &TomlItem,
@@ -252,162 +257,49 @@ pub fn collect_paths_recursive(
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum TValue {
-    Array(Vec<TValue>),
-    String(String),
-    Integer(i64),
-    Float(f64),
-    Boolean(bool),
-}
-
-impl TValue {
-    pub fn from_toml_value(value: &TomlValue) -> ArcellaResult<TValue> {
-        let result = match value {
-            TomlValue::String(s) => Self::String(s.value().into()),
-            TomlValue::Integer(i) => Self::Integer(*i.value()),
-            TomlValue::Float(f) => Self::Float(*f.value()),
-            TomlValue::Boolean(b) => Self::Boolean(*b.value()),
-            TomlValue::Array(array) => {
-                let inner_values: ArcellaResult<Vec<TValue>> = array
-                    .iter()
-                    .map(|v| Self::from_toml_value(v)) 
-                    .collect();
-                Self::Array(inner_values?)
-            },
-            _ => { 
-                return Err(ArcellaError::Config(
-                    format!("Unsupported TOML value type: {:?}", value)
-                ));
-            },
-        };
-
-        Ok(result)
-    }
-}
-
 #[derive(Debug, Clone)]
 struct KeyValueWithLevel {
     level: i8,
     value: TValue,
 }
 
-fn resolve_include_paths(
-    includes: &Vec<String>,
-    config_dir: &Path
-) -> ArcellaResult<HashSet<PathBuf>> {
-    let mut all_paths = HashSet::new();
-    for include_pattern in includes {
-        let pattern_path = PathBuf::from(include_pattern);
-        if pattern_path.is_absolute() {
-            // If the path is absolute, leave it as is.
-            all_paths.insert(pattern_path);
-        } else {
-            // If relative, make it relative to config_dir
-            all_paths.insert(config_dir.join(&pattern_path));
-        }
-    }
-    Ok(all_paths)
-}
-
-/// Checks if a path represents a regular file with a `.toml` extension
-/// but *not* a `.template.toml` extension.
-fn is_valid_toml_file_path(path: &Path) -> bool {
-
-    // Check that the path has a file extension
-    let extension = match path.extension() {
-        Some(ext) => ext,
-        None => return false,
-    };
-
-    // Check that the file extension is `.toml`
-    if !extension.eq_ignore_ascii_case("toml") {
-        return false;
-    }
-
-    // Check, file is not .template.toml
-    let file_name = path.file_name().unwrap().to_string_lossy();
-    if file_name.to_lowercase().ends_with(".template.toml") {
-        return false;
-    }
-
-    // If we got here, the file is a valid .toml file
-    true
-}
-
-pub async fn find_toml_files_in_dir(dir_path: &Path) -> ArcellaResult<Option<Vec<PathBuf>>> {
-    // Check that the path exists and is a directory
-    let metadata = fs::metadata(dir_path).await
-        .map_err(|e| ArcellaError::IoWithPath { source: e, path: dir_path.to_path_buf() })?;
-
-    if !metadata.is_dir() {
-        return Ok(None);
-    }
-
-    let mut dir_entries = fs::read_dir(dir_path).await
-        .map_err(|e| ArcellaError::IoWithPath { source: e, path: dir_path.to_path_buf() })?;
-
-    let mut toml_files = Vec::new();
-
-    while let Some(entry) = dir_entries.next_entry().await
-        .map_err(|e| ArcellaError::IoWithPath { source: e, path: dir_path.to_path_buf() })?
-    {
-        let path = entry.path();
-
-        if path.is_dir() {
-            continue;
-        }
-
-        if is_valid_toml_file_path(&path) {
-            toml_files.push(path);
-        }
-    }
-
-    // Sort the files by name without case sensitivity
-    toml_files.sort_by_key(|path| {
-        path.file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_lowercase()
-    });
-
-    Ok(Some(toml_files))
-}
 
 /*pub async fn collect_includes_recursive(
     includes: &Vec<String>,
     config_dir: &Path,
     max_depth: usize,
 ) -> ArcellaResult<(Vec<String>, HashMap<String, KeyValueWithLevel>)> {
-    let mut full_includes = Vec::new();
-    let mut values = HashMap::new();
+    //let mut full_includes = Vec::new();
+    //let mut values = HashMap::new();
 
-    //Collect all paths matching the patterns in includes
-    let all_paths = resolve_include_paths(includes, config_dir).await?;
+    // Step 1: Resolve all include paths (both files and dirs) from the main config
+    let all_paths = resolve_include_paths(includes, config_dir)?;
 
+    // Step 2: Separate files and directories
+    let mut include_files = Vec::new();
+    let mut include_dirs = Vec::new();
 
-}*/
-
-
-async fn find_base_dir() -> ArcellaResult<PathBuf> {
-    if let Ok(current_exe) = env::current_exe() {
-        if let Some(parent) = current_exe.parent() {
-            if parent.file_name() == Some(std::ffi::OsStr::new("bin")) {
-                return Ok(parent.parent().unwrap_or(&current_exe).to_path_buf());
-            }
-        }
-
-        let current_dir = current_exe.parent().unwrap_or(&current_exe);
-        let local_config = current_dir.join("config");
-        if local_config.exists() && local_config.is_dir() {
-            return Ok(current_dir.to_path_buf());
+    for path in &all_paths {
+        if path.is_file() {
+            include_files.push(path.clone());
+        } else if path.is_dir() {
+            include_dirs.push(path.clone());
         }
     }
 
-    dirs::home_dir()
-        .map(|d| d.join(".arcella"))
-        .ok_or_else(|| ArcellaError::Config("Cannot determine home directory".into()))
-}
+    // Step 3: Process all resolved paths asynchronously and in parallel
+    // a) Process individual files: filter using is_valid_toml_file_path
+    let mut valid_file_paths = Vec::new();
+    for file_path in include_files {
+        if is_valid_toml_file_path(&file_path) {
+            valid_file_paths.push(file_path);
+        }
+    }
+
+
+    Ok((Vec::new(), HashMap::new()))
+}*/
+
 
 #[cfg(test)]
 mod tests {
@@ -457,119 +349,6 @@ mod tests {
         assert_eq!(values, expected_values);        
 
     }
-
-    mod find_toml_tests {
-        use super::*;
-        use tempfile::TempDir;
-        use std::fs;
-
-        #[tokio::test]
-        async fn test_find_toml_files_in_dir_valid_directory() {
-            let temp_dir = TempDir::new().unwrap();
-            let dir_path = temp_dir.path();
-
-            // Create some test files
-            fs::write(dir_path.join("config1.toml"), "# Config 1").unwrap();
-            fs::write(dir_path.join("config2.toml"), "# Config 2").unwrap();
-            fs::write(dir_path.join("not_a_config.txt"), "Text file").unwrap();
-            fs::write(dir_path.join("Config3.TOML"), "# Config 3 (uppercase)").unwrap(); // Проверка case-insensitivity
-            fs::write(dir_path.join("template.template.toml"), "# Template").unwrap(); // Должен быть исключен
-            fs::write(dir_path.join("normal.template.toml"), "# Normal Template").unwrap(); // Должен быть исключен
-
-            let result = find_toml_files_in_dir(dir_path).await.unwrap();
-            let files = result.expect("Should return Some");
-
-            assert_eq!(files.len(), 3); // config1.toml, config2.toml, Config3.TOML
-
-            let expected_names: Vec<String> = vec![
-                "config1.toml",
-                "config2.toml", 
-                "Config3.TOML"
-            ].into_iter().map(|s| s.to_string()).collect();
-
-            let actual_names: Vec<String> = files.iter()
-                .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
-                .collect();
-
-            assert_eq!(actual_names, expected_names);
-        }
-
-        #[tokio::test]
-        async fn test_find_toml_files_in_dir_empty_directory() {
-            let temp_dir = TempDir::new().unwrap();
-            let dir_path = temp_dir.path();
-
-            let result = find_toml_files_in_dir(dir_path).await.unwrap();
-            let files = result.expect("Should return Some");
-
-            assert!(files.is_empty());
-        }
-
-        #[tokio::test]
-        async fn test_find_toml_files_in_dir_nonexistent_path() {
-            let nonexistent_path = Path::new("/this/path/definitely/does/not/exist/arcella_test_dir");
-            
-            let result = find_toml_files_in_dir(nonexistent_path).await;
-            
-            assert!(result.is_err());
-            // Проверяем, что ошибка — это IoWithPath
-            match result.unwrap_err() {
-                ArcellaError::IoWithPath { .. } => {}, // OK
-                _ => panic!("Expected ArcellaError::IoWithPath"),
-            }
-        }
-
-        #[tokio::test]
-        async fn test_find_toml_files_in_dir_file_instead_of_dir() {
-            let temp_dir = TempDir::new().unwrap();
-            let file_path = temp_dir.path().join("not_a_dir.toml");
-            fs::write(&file_path, "# Just a file").unwrap();
-
-            let result = find_toml_files_in_dir(&file_path).await.unwrap();
-            
-            assert!(result.is_none()); // Путь — файл, а не директория
-        }
-
-        #[tokio::test]
-        async fn test_find_toml_files_in_dir_nested_dirs_ignored() {
-            let temp_dir = TempDir::new().unwrap();
-            let dir_path = temp_dir.path();
-
-            // Create a subdirectory
-            let sub_dir = dir_path.join("subdir");
-            fs::create_dir(&sub_dir).unwrap();
-
-            // Create .toml files in both the main dir and sub dir
-            fs::write(dir_path.join("main_config.toml"), "# Main").unwrap();
-            fs::write(sub_dir.join("nested_config.toml"), "# Nested").unwrap(); // Этот не должен быть найден
-
-            let result = find_toml_files_in_dir(dir_path).await.unwrap();
-            let files = result.expect("Should return Some");
-
-            assert_eq!(files.len(), 1); // Только main_config.toml
-            assert!(files[0].file_name().unwrap().to_string_lossy().contains("main_config.toml"));
-        }
-
-        #[tokio::test]
-        async fn test_find_toml_files_in_dir_sorted_order() {
-            let temp_dir = TempDir::new().unwrap();
-            let dir_path = temp_dir.path();
-
-            // Create .toml files in non-lexicographic order
-            fs::write(dir_path.join("z.toml"), "# Z").unwrap();
-            fs::write(dir_path.join("a.toml"), "# A").unwrap();
-            fs::write(dir_path.join("m.toml"), "# M").unwrap();
-
-            let result = find_toml_files_in_dir(dir_path).await.unwrap();
-            let files = result.expect("Should return Some");
-
-            assert_eq!(files.len(), 3);
-            // Проверяем, что файлы отсортированы
-            assert!(files[0].file_name().unwrap().to_string_lossy() == "a.toml");
-            assert!(files[1].file_name().unwrap().to_string_lossy() == "m.toml");
-            assert!(files[2].file_name().unwrap().to_string_lossy() == "z.toml");
-        }
-    }    
 
     /*#[tokio::test]
     async fn test_load_default() {
