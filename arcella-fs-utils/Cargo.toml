@@ -1,0 +1,19 @@
+# arcella/arcella-fs-utils/Cargo.toml
+[package]
+name = "arcella-fs-utils"
+version = "0.1.0"
+edition = "2021"
+description = "Arcella filesystem utils"
+repository = "https://github.com/ArcellaTeam/arcella/"
+
+[dependencies]
+arcella-types = { path = "../arcella-types", version = "0.1.0" }
+dirs = "6"
+tokio = { version = "1", features = ["fs"] }
+thiserror = "2.0.17"
+futures = "0.3.31"
+toml_edit = "0.23.7"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+tempfile = "3.23.0"

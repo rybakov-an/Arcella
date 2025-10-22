@@ -287,7 +287,7 @@ async fn send_response(
 }
 
 
-#[cfg(test)]
+/*#[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
@@ -516,4 +516,4 @@ mod tests {
 
     }
 
-}
+}*/

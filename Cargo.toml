@@ -4,5 +4,6 @@ members = [
     "arcella",
     "arcella-cli",
     "arcella-types",
+    "arcella-fs-utils",
     "arcella-wasmtime",
 ]

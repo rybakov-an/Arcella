@@ -24,11 +24,17 @@ impl StorageManager {
     pub async fn new(
         config: &Arc<ArcellaConfig>,
     ) -> ArcellaResult<Self> {
+
+        let base_dir = config.base_dir.clone();//.unwrap_or_else(|| PathBuf::from("."));
+        let config_dir = config.config_dir.clone();//.unwrap_or_else(|| base_dir.join("config"));
+        let modules_dir = config.modules_dir.clone();//.unwrap_or_else(|| base_dir.join("modules"));
+        let cache_dir = config.cache_dir.clone();//.unwrap_or_else(|| base_dir.join("cache"));
+
         let manager = Self {
-            base_dir: config.base_dir.clone(),
-            config_dir: config.config_dir.clone(),
-            modules_dir: config.modules_dir.clone(),
-            cache_dir: config.cache_dir.clone(),
+            base_dir,
+            config_dir,
+            modules_dir,
+            cache_dir,
         };
 
         manager.ensure_directories().await?;
@@ -38,30 +44,71 @@ impl StorageManager {
 
     async fn ensure_directories(&self) -> ArcellaResult<()> {
         if !self.base_dir.exists() {
-            std::fs::create_dir_all(&self.base_dir)?;
+            tokio::fs::create_dir_all(&self.base_dir).await?;
+            tracing::info!("Created base directory: {:?}", self.base_dir);
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let mut perms = std::fs::metadata(&self.base_dir)?.permissions();
+                let mut perms = tokio::fs::metadata(&self.base_dir).await?.permissions();
                 perms.set_mode(0o700);
-                std::fs::set_permissions(&self.base_dir, perms)?;
+                tokio::fs::set_permissions(&self.base_dir, perms).await?;
+                tracing::info!("Set permissions for base directory: {:?}", self.base_dir);
             }
         }
 
         if !self.config_dir.exists() {
-            std::fs::create_dir_all(&self.config_dir)?;
+            tokio::fs::create_dir_all(&self.config_dir).await?;
+            tracing::info!("Created config directory: {:?}", self.config_dir);
         }
 
         if !self.modules_dir.exists() {
-            std::fs::create_dir_all(&self.modules_dir)?;
+            tokio::fs::create_dir_all(&self.modules_dir).await?;
+            tracing::info!("Created modules directory: {:?}", self.modules_dir);
         }
 
         if !self.cache_dir.exists() {
-            std::fs::create_dir_all(&self.cache_dir)?;
+            tokio::fs::create_dir_all(&self.cache_dir).await?;
+            tracing::info!("Created cache directory: {:?}", self.cache_dir);
         }
 
         Ok(())
-
     } 
 
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    /*#[tokio::test]
+    async fn test_storage_manager_creates_dirs() {
+        let temp_dir = TempDir::new().unwrap();
+        let base_path = temp_dir.path().join("arcella_test");
+
+        let config = Arc::new(ArcellaConfig {
+            base_dir: Some(base_path.clone()),
+            config_dir: Some(base_path.join("config")),
+            log_dir: Some(base_path.join("log")),
+            modules_dir: Some(base_path.join("modules")),
+            cache_dir: Some(base_path.join("cache")),
+            socket_path: Some(base_path.join("alme")),
+        });
+
+        let storage = StorageManager::new(&config).await.unwrap();
+
+        assert!(storage.base_dir.exists());
+        assert!(storage.config_dir.exists());
+        assert!(storage.modules_dir.exists());
+        assert!(storage.cache_dir.exists());
+
+        // Проверка прав доступа для base_dir (только на Unix)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::metadata(&storage.base_dir).unwrap().permissions();
+            assert_eq!(perms.mode() & 0o777, 0o700);
+        }
+    }*/
 }
