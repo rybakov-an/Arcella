@@ -21,7 +21,7 @@ use arcella_types::{
     value::Value as TValue
 };
 use arcella_fs_utils as fs_utils;
-use arcella_fs_utils::{ValueExt};
+use arcella_fs_utils::{toml::ValueExt};
 
 use crate::error::{ArcellaError, Result as ArcellaResult};
 
@@ -199,63 +199,6 @@ pub async fn load() -> ArcellaResult<ArcellaConfig> {
     })
 }
 
-pub fn collect_paths_recursive(
-    item: &TomlItem,
-    current_path: &[String],
-    includes: &mut Vec<String>,
-    values: &mut HashMap<String, TValue>,
-    depth: usize,
-    max_depth: usize,
-) -> ArcellaResult<()> {
-    if depth > max_depth {
-        return Ok(());
-    }
-
-    match item {
-        TomlItem::Table(table) => {
-            for (key, value) in table {
-                let mut key_path = current_path.to_vec();
-                key_path.push(key.into());
-
-                if key == "includes" {
-                    match value {
-                        TomlItem::Value(TomlValue::Array(includes_array)) => {
-                            for include in includes_array {
-                                if let Some(str_val) = include.as_str() {
-                                    includes.push(str_val.to_owned());
-                                }
-                            }
-                        },
-                        // Also handle a single string value for 'includes'
-                        TomlItem::Value(include) => {
-                            if let Some(str_val) = include.as_str() {
-                                includes.push(str_val.to_owned());
-                            }
-                        },
-                        _ => {} 
-                    };
-                } else if let TomlItem::Value(subvalue) = value {
-                    values.insert(
-                        key_path.join("."), 
-                        TValue::from_toml_value(subvalue)?
-                    );
-                } else {
-                    collect_paths_recursive(
-                        value,
-                        &key_path,
-                        includes,
-                        values,
-                        depth + 1,
-                        max_depth,
-                    )?;                    
-                }
-            }
-        },
-        _ => {}
-    }        
-
-    Ok(())
-}
 
 #[derive(Debug, Clone)]
 struct KeyValueWithLevel {
@@ -306,49 +249,6 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
     use std::fs;
-
-    #[tokio::test]
-    async fn test_collect_paths_recursive() {
-        let depth = 0;
-        let max_depth = 10;
-
-        let config_content = r#"
-        [database]
-            includes = ["*", "test_1.toml"]
-        [servers]
-        [servers.alpha]
-            includes = "test_2.toml"
-            test_string = "string"
-            test_int = 10
-            test_bool = true
-        "#;
-
-        let main_doc = config_content.parse::<DocumentMut>().unwrap();
-
-        let mut values: HashMap<String, TValue> = HashMap::new();
-        let mut includes: Vec<String> = vec![];
-
-        let result = collect_paths_recursive(
-            main_doc.as_item(),
-            &["arcella".into()],
-            &mut includes,
-            &mut values,
-            depth,
-            max_depth,
-        );
-        assert!(result.is_ok());
-
-        let expected_includes = vec!["*".to_string(), "test_1.toml".to_string(), "test_2.toml".to_string()];
-        assert_eq!(includes, expected_includes);
-
-        let mut expected_values = std::collections::HashMap::new();
-        expected_values.insert("arcella.servers.alpha.test_string".to_string(), TValue::String("string".to_string()));
-        expected_values.insert("arcella.servers.alpha.test_int".to_string(), TValue::Integer(10));
-        expected_values.insert("arcella.servers.alpha.test_bool".to_string(), TValue::Boolean(true));
-
-        assert_eq!(values, expected_values);        
-
-    }
 
     /*#[tokio::test]
     async fn test_load_default() {
