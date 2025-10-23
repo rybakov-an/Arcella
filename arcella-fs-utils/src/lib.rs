@@ -19,60 +19,15 @@
 //! to process TOML-based configurations in a consistent way.
 
 use futures::future;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::env;
 use std::path::{Path, PathBuf};
-use toml_edit::{DocumentMut, Item as TomlEditItem, Value as TomlEditValue, Array as TomlEditArray};
 use tokio::fs;
-
-use arcella_types::{
-    value::Value as TomlValue
-};
 
 pub mod error;
 use crate::error::{ArcellaUtilsError, Result as ArcellaResult};
 
-/// Extension trait for converting `toml_edit::Value` into `arcella_types::Value`.
-///
-/// This allows for a consistent representation of TOML values across Arcella components.
-pub trait ValueExt {
-    /// Converts a `toml_edit::Value` into a `arcella_types::Value`.
-    ///
-    /// # Arguments
-    ///
-    /// * `value` - The `toml_edit::Value` to convert.
-    ///
-    /// # Returns
-    ///
-    /// A `Result` containing the converted `arcella_types::Value` or an error
-    /// if the TOML type is unsupported.
-    fn from_toml_value(value: &TomlEditValue) -> ArcellaResult<TomlValue>;
-}
-
-impl ValueExt for TomlValue {
-    fn from_toml_value(value: &TomlEditValue) -> ArcellaResult<TomlValue> {
-        let result = match value {
-            TomlEditValue::String(s) => Self::String(s.value().into()),
-            TomlEditValue::Integer(i) => Self::Integer(*i.value()),
-            TomlEditValue::Float(f) => Self::Float(*f.value()),
-            TomlEditValue::Boolean(b) => Self::Boolean(*b.value()),
-            TomlEditValue::Array(array) => {
-                let inner_values: ArcellaResult<Vec<TomlValue>> = array
-                    .iter()
-                    .map(|v| Self::from_toml_value(v)) 
-                    .collect();
-                Self::Array(inner_values?)
-            },
-            _ => { 
-                return Err(ArcellaUtilsError::TOML(
-                    format!("Unsupported TOML value type: {:?}", value)
-                ));
-            },
-        };
-
-        Ok(result)
-    }
-}
+pub mod toml;
 
 /// Determines the base directory for Arcella based on the executable location or environment.
 ///
