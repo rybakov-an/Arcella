@@ -15,13 +15,13 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use serde::Deserialize;
 use tokio::fs;
-use toml_edit::{DocumentMut, Item as TomlItem, Value as TomlValue, Array as TomlArray};
+use toml_edit::DocumentMut;
 
 use arcella_types::{
-    value::Value as TValue
+    value::Value as TomlValue
 };
 use arcella_fs_utils as fs_utils;
-use arcella_fs_utils::{toml::ValueExt};
+use arcella_fs_utils::toml as arcella_toml;
 
 use crate::error::{ArcellaError, Result as ArcellaResult};
 
@@ -140,7 +140,9 @@ async fn get_current_mtimes(paths: &[PathBuf]) -> ArcellaResult<HashMap<PathBuf,
     Ok(current_mtimes)
 }
 
-pub async fn load() -> ArcellaResult<ArcellaConfig> {
+const REDEF_SUFFIX: &str = "#redef";
+
+pub async fn load() -> ArcellaResult<(ArcellaConfig, Vec<fs_utils::ConfigLoadWarning>)> {
     
     // 1. Find base_dir
     let base_dir = fs_utils::find_base_dir().await?;
@@ -152,96 +154,68 @@ pub async fn load() -> ArcellaResult<ArcellaConfig> {
     //ensure_config_template(&config_dir).await?;
 
     // 4. Load arcella.toml
-    let config_file_path = config_dir.join("arcella.toml");
-    if !config_file_path.exists() {
-        return Err(ArcellaError::Config(
-            format!("Main config file not found: {:?}", config_file_path)
-        ));
+    let main_config_path = config_dir.join("arcella.toml");
+    let (configs, mut warnings) = fs_utils::load_config_recursive_from_file(&main_config_path, &config_dir).await?;
+
+    let mut final_values: HashMap<String, (TomlValue, usize)> = HashMap::new();
+
+    // Обходим configs в обратном порядке (начиная с большего индекса)
+    for (layer_index, config_data) in configs.iter().enumerate().rev() {
+        for (key, value) in &config_data.values {
+            // Проверяем, заканчивается ли ключ на #redef
+            let (actual_key, is_redef) = if key.ends_with(REDEF_SUFFIX) {
+                // Извлекаем оригинальный ключ без суффикса
+                let original_key = key[..key.len() - REDEF_SUFFIX.len()].to_string();
+                (original_key, true)
+            } else {
+                (key.clone(), false)
+            };
+
+            // Проверяем, существует ли ключ в final_values
+            if let Some((existing_value, existing_layer_index)) = final_values.get(&actual_key) {
+                // Ключ уже существует
+                // Если у текущего ключа был флаг #redef, не обновляем его новым значением из более низкого слоя
+                if is_redef { continue; }
+
+                warnings.push(fs_utils::ConfigLoadWarning::ValueError {
+                    key: actual_key.clone(),
+                    error: format!("Value from layer {} ignored due to #redef flag from layer {}", layer_index, existing_layer_index),
+                    file: PathBuf::from(format!("layer_{}.toml", layer_index)),
+                });
+            }
+
+            // В противном случае, обновляем значение
+            final_values.insert(actual_key, (value.clone(), layer_index));
+
+        }
     }
 
-    let content = tokio::fs::read_to_string(&config_file_path).await
-        .map_err(|e| ArcellaError::IoWithPath { source: e, path: config_file_path.clone() })?;
+    let log_dir = final_values.get("arcella.log.dir")
+        .and_then(|(v, _)| if let TomlValue::String(s) = v { Some(PathBuf::from(s)) } else { None })
+        .unwrap_or_else(|| base_dir.join("log"));
 
-    let mut main_doc = content.parse::<DocumentMut>()
-        .map_err(|e| ArcellaError::Config(e.to_string()))?;
+    let modules_dir = final_values.get("arcella.modules.dir")
+        .and_then(|(v, _)| if let TomlValue::String(s) = v { Some(PathBuf::from(s)) } else { None })
+        .unwrap_or_else(|| base_dir.join("modules"));
 
-    /*let config_file_path = default_config.config_dir.as_ref().unwrap().join("arcella.toml");
+    let cache_dir = final_values.get("arcella.cache.dir")
+        .and_then(|(v, _)| if let TomlValue::String(s) = v { Some(PathBuf::from(s)) } else { None })
+        .unwrap_or_else(|| base_dir.join("cache"));
 
-    let config = if config_file_path.exists() {
-        let content = tokio::fs::read_to_string(&config_file_path)
-            .await
-            .map_err(|e| ArcellaError::IoWithPath { source: e, path: config_file_path.clone() })?;
+    let socket_path = final_values.get("arcella.alme.socket.path")
+        .and_then(|(v, _)| if let TomlValue::String(s) = v { Some(PathBuf::from(s)) } else { None })
+        .unwrap_or_else(|| base_dir.join("alme"));
 
-        let file_config: ConfigFile = toml::from_str(&content)
-            .map_err(|e| ArcellaError::Config(e.to_string()))?;
-
-        ArcellaConfig {
-            base_dir: default_config.base_dir,
-            config_dir: default_config.config_dir,
-            log_dir: file_config.log_dir.or(default_config.log_dir),
-            modules_dir: file_config.modules_dir.or(default_config.modules_dir),
-            cache_dir: file_config.cache_dir.or(default_config.cache_dir),
-            socket_path: file_config.socket_path.or(default_config.socket_path),
-        }
-
-    } else {
-        default_config
-    };*/
-
-    Ok(ArcellaConfig {
+    Ok((ArcellaConfig {
         base_dir: base_dir,
         config_dir: config_dir,
-        log_dir: PathBuf::from("log"),
-        modules_dir: PathBuf::from("modules"),
-        cache_dir: PathBuf::from("cache"),
-        socket_path: PathBuf::from("alme"),
+        log_dir: log_dir,
+        modules_dir: modules_dir,
+        cache_dir: cache_dir,
+        socket_path: socket_path,
         integrity_check_paths: vec![],
-    })
+    }, warnings))
 }
-
-
-#[derive(Debug, Clone)]
-struct KeyValueWithLevel {
-    level: i8,
-    value: TValue,
-}
-
-
-/*pub async fn collect_includes_recursive(
-    includes: &Vec<String>,
-    config_dir: &Path,
-    max_depth: usize,
-) -> ArcellaResult<(Vec<String>, HashMap<String, KeyValueWithLevel>)> {
-    //let mut full_includes = Vec::new();
-    //let mut values = HashMap::new();
-
-    // Step 1: Resolve all include paths (both files and dirs) from the main config
-    let all_paths = resolve_include_paths(includes, config_dir)?;
-
-    // Step 2: Separate files and directories
-    let mut include_files = Vec::new();
-    let mut include_dirs = Vec::new();
-
-    for path in &all_paths {
-        if path.is_file() {
-            include_files.push(path.clone());
-        } else if path.is_dir() {
-            include_dirs.push(path.clone());
-        }
-    }
-
-    // Step 3: Process all resolved paths asynchronously and in parallel
-    // a) Process individual files: filter using is_valid_toml_file_path
-    let mut valid_file_paths = Vec::new();
-    for file_path in include_files {
-        if is_valid_toml_file_path(&file_path) {
-            valid_file_paths.push(file_path);
-        }
-    }
-
-
-    Ok((Vec::new(), HashMap::new()))
-}*/
 
 
 #[cfg(test)]
@@ -250,58 +224,5 @@ mod tests {
     use tempfile::TempDir;
     use std::fs;
 
-    /*#[tokio::test]
-    async fn test_load_default() {
-        let config = load().await.unwrap();
-        let base = dirs::home_dir().unwrap().join(".arcella");
-        assert_eq!(config.base_dir, Some(base.clone()));
-        assert_eq!(config.config_dir, Some(base.join("config")));
-        assert_eq!(config.modules_dir, Some(base.join("modules")));
-        assert_eq!(config.cache_dir, Some(base.join("cache")));
-        assert_eq!(config.socket_path, Some(base.join("alme")));
-    }
-
-    #[tokio::test]
-    async fn test_load_from_file() {
-        let temp_dir = TempDir::new().unwrap();
-        let base_dir = temp_dir.path();
-        let config_dir = base_dir.join("custom_config");
-        let config_file_path = config_dir.join("arcella.toml");
-
-        fs::create_dir_all(&base_dir).unwrap();
-        fs::create_dir_all(config_dir.as_path()).unwrap();
-
-        let config_content = r#"
-            modules_dir = "/tmp/arcella_test/modules"
-            socket_path = "/tmp/arcella_test/custom_alme.sock"
-        "#;
-        fs::write(&config_file_path, config_content).unwrap();
-
-        let default_config = ArcellaConfig {
-            base_dir: Some(base_dir.clone().into()),
-            config_dir: Some(config_dir.clone().into()),
-            log_dir: Some(base_dir.join("log")),
-            modules_dir: Some(base_dir.join("modules")),
-            cache_dir: Some(base_dir.join("cache")),
-            socket_path: Some(base_dir.join("alme")),
-        };
-
-        let content = tokio::fs::read_to_string(&config_file_path).await.unwrap();
-        let file_config: ConfigFile = toml::from_str(&content).unwrap();
-
-        let final_config = ArcellaConfig {
-            base_dir: default_config.base_dir,
-            config_dir: default_config.config_dir,
-            log_dir: file_config.log_dir.or(default_config.log_dir),
-            modules_dir: file_config.modules_dir.or(default_config.modules_dir),
-            cache_dir: file_config.cache_dir.or(default_config.cache_dir),
-            socket_path: file_config.socket_path.or(default_config.socket_path),
-        };
-
-        assert_eq!(final_config.modules_dir, Some(PathBuf::from("/tmp/arcella_test/modules")));
-        assert_eq!(final_config.socket_path, Some(PathBuf::from("/tmp/arcella_test/custom_alme.sock")));
-        // config_dir осталось из default
-        assert_eq!(final_config.config_dir, Some(config_dir.into()));
-    }*/
 }
 

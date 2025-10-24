@@ -35,7 +35,8 @@ async fn main() -> ArcellaResult<()> {
 
     // 1. Load configuration (e.g., paths, runtime options)
     let _ = Cli::parse(); 
-    let config = Arc::new(config::load().await?);
+    let (config_data, warning) = config::load().await?;
+    let config = Arc::new(config_data);
 
     // 2. Initialize logging (should be the first side effect)
     let _log_guard = log::init(&config)?;
