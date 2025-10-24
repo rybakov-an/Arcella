@@ -1,4 +1,4 @@
-// arcella/arcella-wasmtime/src/error.rs
+// arcella/arcella-fs-utils/src/error.rs
 //
 // Copyright (c) 2025 Arcella Team
 //

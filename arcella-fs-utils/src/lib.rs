@@ -14,6 +14,7 @@
 //! - Finding and validating `.toml` configuration files.
 //! - Collecting files specified by `includes` patterns.
 //! - Converting TOML values into a serializable format used by Arcella.
+//! - Loading configurations recursively with warnings.
 //!
 //! It is designed to be used by the Arcella runtime and other tools that need
 //! to process TOML-based configurations in a consistent way.
@@ -28,6 +29,12 @@ pub mod error;
 use crate::error::{ArcellaUtilsError, Result as ArcellaResult};
 
 pub mod toml;
+
+pub mod warnings;
+pub use warnings::ConfigLoadWarning;
+
+pub mod config_loader;
+pub use config_loader::*;
 
 /// Determines the base directory for Arcella based on the executable location or environment.
 ///

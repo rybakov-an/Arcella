@@ -19,6 +19,12 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConfigData {
+    pub includes: Vec<String>,
+    pub values: HashMap<String, Value>,
+}
+
 /// A generic value type that can represent data from configuration, ALME protocol,
 /// WIT interfaces, or other structured sources within the Arcella ecosystem.
 ///
