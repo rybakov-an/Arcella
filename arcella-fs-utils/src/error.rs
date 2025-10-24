@@ -1,4 +1,4 @@
-// arcella/arcella-wasmtime/src/error.rs
+// arcella/arcella-fs-utils/src/error.rs
 //
 // Copyright (c) 2025 Arcella Team
 //
@@ -28,6 +28,12 @@ pub enum ArcellaUtilsError {
     #[error("I/O error at {path:?}: {source}")]
     IoWithPath {
         source: std::io::Error,
+        path: PathBuf,
+    },
+
+    /// Path not found
+    #[error("Path not found: {path:?}")]
+    PathNotFound {
         path: PathBuf,
     },
 
