@@ -8,48 +8,17 @@
 // except according to those terms.
 
 use futures::future;
-use std::collections::{HashMap, HashSet};
-use std::env;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::collections::{HashMap};
+use std::path::PathBuf;
 use std::time::SystemTime;
 use serde::Deserialize;
-use tokio::fs;
-use toml_edit::DocumentMut;
 
 use arcella_types::{
     value::Value as TomlValue
 };
 use arcella_fs_utils as fs_utils;
-use arcella_fs_utils::toml as arcella_toml;
 
 use crate::error::{ArcellaError, Result as ArcellaResult};
-
-#[derive(Deserialize, Default)]
-pub struct ConfigFile {
-    #[serde(default)]
-    pub base_dir: Option<PathBuf>,
-    #[serde(default)]
-    pub log_dir: Option<PathBuf>,
-    #[serde(default)]
-    pub modules_dir: Option<PathBuf>,
-    #[serde(default)]
-    pub cache_dir: Option<PathBuf>,
-    #[serde(default)]
-    pub socket_path: Option<PathBuf>,
-    #[serde(default)]
-    pub includes: Includes,
-    #[serde(default)]
-    pub integrity_check: IntegrityCheck,
-}
-
-#[derive(Deserialize, Default)]
-struct Includes {
-    #[serde(default)]
-    files: Vec<String>,
-    #[serde(default)]
-    dirs: Vec<String>,
-}
 
 #[derive(Deserialize, Default)]
 struct IntegrityCheck {
@@ -172,7 +141,7 @@ pub async fn load() -> ArcellaResult<(ArcellaConfig, Vec<fs_utils::ConfigLoadWar
             };
 
             // Проверяем, существует ли ключ в final_values
-            if let Some((existing_value, existing_layer_index)) = final_values.get(&actual_key) {
+            if let Some((_, existing_layer_index)) = final_values.get(&actual_key) {
                 // Ключ уже существует
                 // Если у текущего ключа был флаг #redef, не обновляем его новым значением из более низкого слоя
                 if is_redef { continue; }
