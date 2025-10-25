@@ -114,6 +114,7 @@ dependencies = [
  "clap",
  "dirs",
  "futures",
+ "indexmap",
  "regex",
  "serde",
  "serde_json",

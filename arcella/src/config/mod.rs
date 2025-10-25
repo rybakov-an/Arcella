@@ -8,10 +8,12 @@
 // except according to those terms.
 
 use futures::future;
-use std::collections::{HashMap};
-use std::path::PathBuf;
-use std::time::SystemTime;
 use serde::Deserialize;
+use std::collections::{HashMap, HashSet};
+use indexmap::IndexMap;
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
+use tokio::fs;
 
 use arcella_types::{
     value::Value as TomlValue
@@ -19,6 +21,10 @@ use arcella_types::{
 use arcella_fs_utils as fs_utils;
 
 use crate::error::{ArcellaError, Result as ArcellaResult};
+
+const REDEF_SUFFIX: &str = "#redef";
+const DEFAULT_CONFIG_CONTENT: &str = include_str!("default_config.toml");
+const TEMPLATE_CONFIG_CONTENT: &str = include_str!("template_config.toml");
 
 #[derive(Deserialize, Default)]
 struct IntegrityCheck {
@@ -109,7 +115,38 @@ async fn get_current_mtimes(paths: &[PathBuf]) -> ArcellaResult<HashMap<PathBuf,
     Ok(current_mtimes)
 }
 
-const REDEF_SUFFIX: &str = "#redef";
+async fn ensure_config_template(config_dir: &Path) -> ArcellaResult<(PathBuf, Vec<fs_utils::ConfigLoadWarning>)> {
+    let main_config_path = config_dir.join("arcella.toml");
+    let template_path = config_dir.join("arcella.template.toml");
+
+    let mut warnings: Vec<fs_utils::ConfigLoadWarning> = vec![];
+
+    // Создать config_dir, если не существует
+    fs::create_dir_all(config_dir)
+        .await
+        .map_err(|e| ArcellaError::IoWithPath { source: e, path: config_dir.to_path_buf() })?;
+
+    // Создать шаблон (arcella.template.toml), если он не существует
+    if !template_path.exists() {
+        fs::write(&template_path, TEMPLATE_CONFIG_CONTENT)
+            .await
+            .map_err(|e| ArcellaError::IoWithPath { source: e, path: template_path.clone() })?;
+        warnings.push(fs_utils::ConfigLoadWarning::Internal(
+            format!("Created default config template at {:?}", template_path)
+        ));
+    }
+
+    // Проверить, существует ли arcella.toml, если не существует, то скопировать файл из template_path
+    if !main_config_path.exists() {
+        fs::copy(&template_path, &main_config_path).await?;
+        warnings.push(fs_utils::ConfigLoadWarning::Internal(
+            format!("Created default config at {:?}", main_config_path)
+        ));
+    }
+
+    Ok((main_config_path, warnings))
+
+}
 
 pub async fn load() -> ArcellaResult<(ArcellaConfig, Vec<fs_utils::ConfigLoadWarning>)> {
     
@@ -120,30 +157,40 @@ pub async fn load() -> ArcellaResult<(ArcellaConfig, Vec<fs_utils::ConfigLoadWar
     let config_dir = base_dir.join("config");    
 
     // 3. Ensure config_dir exists
-    //ensure_config_template(&config_dir).await?;
+    let (main_config_path, mut warnings) = ensure_config_template(&config_dir).await?;
+
+    let mut visited = HashSet::new();
 
     // 4. Load arcella.toml
-    let main_config_path = config_dir.join("arcella.toml");
-    let (configs, mut warnings) = fs_utils::load_config_recursive_from_file(&main_config_path, &config_dir).await?;
+    let configs = fs_utils::load_config_recursive_from_content(
+        &["arcella".to_string()],
+        &DEFAULT_CONFIG_CONTENT,
+        &main_config_path,
+        &config_dir,
+        0,
+        &mut visited,
+        &mut warnings,
+    ).await?;
 
-    let mut final_values: HashMap<String, (TomlValue, usize)> = HashMap::new();
+    let mut final_values: IndexMap<String, (TomlValue, usize)> = IndexMap::new();
 
-    // Обходим configs в обратном порядке (начиная с большего индекса)
+    // 5. Merge configs
+    // Reverse the order of configs to process them in the correct order
     for (layer_index, config_data) in configs.iter().enumerate().rev() {
         for (key, value) in &config_data.values {
-            // Проверяем, заканчивается ли ключ на #redef
+            // Check if the key ends with #redef
             let (actual_key, is_redef) = if key.ends_with(REDEF_SUFFIX) {
-                // Извлекаем оригинальный ключ без суффикса
+                // Extract the original key without the #redef suffix
                 let original_key = key[..key.len() - REDEF_SUFFIX.len()].to_string();
                 (original_key, true)
             } else {
                 (key.clone(), false)
             };
 
-            // Проверяем, существует ли ключ в final_values
+            // Check if the key already exists in final_values
             if let Some((_, existing_layer_index)) = final_values.get(&actual_key) {
-                // Ключ уже существует
-                // Если у текущего ключа был флаг #redef, не обновляем его новым значением из более низкого слоя
+                // Key already exists
+                // If the current key has #redef flag, do not update it with a new value from a lower layer
                 if is_redef { continue; }
 
                 warnings.push(fs_utils::ConfigLoadWarning::ValueError {
@@ -153,27 +200,47 @@ pub async fn load() -> ArcellaResult<(ArcellaConfig, Vec<fs_utils::ConfigLoadWar
                 });
             }
 
-            // В противном случае, обновляем значение
+            // Otherwise, update the value
             final_values.insert(actual_key, (value.clone(), layer_index));
 
         }
     }
 
-    let log_dir = final_values.get("arcella.log.dir")
-        .and_then(|(v, _)| if let TomlValue::String(s) = v { Some(PathBuf::from(s)) } else { None })
-        .unwrap_or_else(|| base_dir.join("log"));
+    let log_dir = match final_values.get("arcella.log.dir") {
+        Some((TomlValue::String(s) ,_)) => {
+            PathBuf::from(s)
+        }
+        _ => {
+            return Err(ArcellaError::Internal("arcella.log.dir is not set".to_string()));
+        }
+    };
 
-    let modules_dir = final_values.get("arcella.modules.dir")
-        .and_then(|(v, _)| if let TomlValue::String(s) = v { Some(PathBuf::from(s)) } else { None })
-        .unwrap_or_else(|| base_dir.join("modules"));
+    let modules_dir = match final_values.get("arcella.modules.dir") {
+        Some((TomlValue::String(s) ,_)) => {
+            PathBuf::from(s)
+        }
+        _ => {
+            return Err(ArcellaError::Internal("arcella.modules.dir is not set".to_string()));
+        }
+    };
 
-    let cache_dir = final_values.get("arcella.cache.dir")
-        .and_then(|(v, _)| if let TomlValue::String(s) = v { Some(PathBuf::from(s)) } else { None })
-        .unwrap_or_else(|| base_dir.join("cache"));
+    let cache_dir = match final_values.get("arcella.cache.dir") {
+        Some((TomlValue::String(s) ,_)) => {
+            PathBuf::from(s)
+        }
+        _ => {
+            return Err(ArcellaError::Internal("arcella.cache.dir is not set".to_string()));
+        }
+    };
 
-    let socket_path = final_values.get("arcella.alme.socket.path")
-        .and_then(|(v, _)| if let TomlValue::String(s) = v { Some(PathBuf::from(s)) } else { None })
-        .unwrap_or_else(|| base_dir.join("alme"));
+    let socket_path = match final_values.get("arcella.alme.socket.path") {
+        Some((TomlValue::String(s) ,_)) => {
+            PathBuf::from(s)
+        }
+        _ => {
+            return Err(ArcellaError::Internal("arcella.alme.socket.path is not set".to_string()));
+        }
+    };
 
     Ok((ArcellaConfig {
         base_dir: base_dir,
@@ -185,7 +252,6 @@ pub async fn load() -> ArcellaResult<(ArcellaConfig, Vec<fs_utils::ConfigLoadWar
         integrity_check_paths: vec![],
     }, warnings))
 }
-
 
 #[cfg(test)]
 mod tests {

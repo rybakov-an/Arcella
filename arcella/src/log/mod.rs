@@ -92,8 +92,6 @@ pub fn init(config: &ArcellaConfig) -> ArcellaResult<Option<tracing_appender::no
     fs::create_dir_all(&config.log_dir)
         .map_err(|e| ArcellaError::Io(e))?;
 
-    let log_file_path = config.log_dir.join("arcella.log");
-
     // Initialize ALME in-memory buffer
     if tracing_cfg.alme_buffer_size > 0 {
         let buffer = Arc::new(Mutex::new(VecDeque::with_capacity(tracing_cfg.alme_buffer_size)));
