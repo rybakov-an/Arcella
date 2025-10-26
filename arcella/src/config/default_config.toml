@@ -1,0 +1,49 @@
+# Copyright (c) 2025 Arcella Team
+#
+# Licensed under the Apache License, Version 2.0 <LICENSE-APACHE>
+# or the MIT license <LICENSE-MIT>, at your option.
+# This file may not be copied, modified, or distributed
+# except according to those terms.
+[config]
+
+# Base config file
+includes = ["arcella.toml"]
+
+[log]
+
+# Global log level
+default_level = "info"
+
+# Enable structured (JSON) logging
+structured = false
+
+# Log to stderr (useful for development / foreground mode)
+stderr = true
+
+# Config dir path (relative to base_dir or absolute)
+dir = "log"
+
+# Log file path (relative to log_dir or absolute)
+filename = "arcella.log"
+
+# Max size in memory log buffer
+alme_buffer_size = 100
+
+# Max log file size in bytes (optional, for future rotation)
+# max_file_size = 10485760  # 10 MB
+
+[log.modules]
+
+"arcella::alme" = "trace"
+
+[alme]
+
+socket.path = "alme"
+
+[cache]
+
+dir = "cache"
+
+[modules]
+
+dir = "modules"

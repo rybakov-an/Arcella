@@ -16,6 +16,9 @@ use std::path::PathBuf;
 /// in a buffer and can be processed (e.g., logged) later.
 #[derive(Debug, Clone)]
 pub enum ConfigLoadWarning {
+    /// General-purpose warning for unexpected conditions.
+    Internal(String),
+
     /// A configuration value was found to be `Null`.
     NullValueDetected { key: String, file: PathBuf },
 
@@ -42,6 +45,9 @@ pub enum ConfigLoadWarning {
 impl std::fmt::Display for ConfigLoadWarning {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ConfigLoadWarning::Internal(msg) => {
+                write!(f, "{}", msg)
+            }
             ConfigLoadWarning::NullValueDetected { key, file } => {
                 write!(f, "Null value found for key '{}' in file {:?}", key, file)
             }
