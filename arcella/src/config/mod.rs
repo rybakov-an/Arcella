@@ -206,6 +206,8 @@ pub async fn load() -> ArcellaResult<(ArcellaConfig, Vec<fs_utils::ConfigLoadWar
         }
     }
 
+    final_values.sort_keys();
+
     let log_dir = match final_values.get("arcella.log.dir") {
         Some((TomlValue::String(s) ,_)) => {
             PathBuf::from(s)
