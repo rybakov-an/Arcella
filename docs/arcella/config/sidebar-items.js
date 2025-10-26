@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["check_mtimes_changed","get_current_mtimes","load"],"struct":["ArcellaConfig","ConfigFile","Includes","IntegrityCheck","IntegrityChecker","KeyValueWithLevel"]};
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_CONFIG_CONTENT","REDEF_SUFFIX","TEMPLATE_CONFIG_CONTENT"],"fn":["check_mtimes_changed","ensure_config_template","get_current_mtimes","load"],"struct":["ArcellaConfig","IntegrityCheck","IntegrityChecker"]};

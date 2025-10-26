@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["Value"],"struct":["ConfigData"]};
+window.SIDEBAR_ITEMS = {"enum":["SectionEntry","Value"],"struct":["ConfigData","TypedError"]};
