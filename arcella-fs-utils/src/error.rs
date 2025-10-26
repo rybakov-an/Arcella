@@ -41,4 +41,3 @@ pub enum ArcellaUtilsError {
     #[error("TOML error: {0}")]
     TOML(String),
 }
-
