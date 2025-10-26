@@ -14,12 +14,12 @@
 //! It handles circular dependencies, limits recursion depth, and collects warnings
 //! during the loading process for later reporting.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use arcella_types::value::ConfigData;
-
 use crate::collect_toml_includes;
+use crate::toml::TomlFileData;
+
 use crate::ConfigLoadWarning; 
 use crate::error::{ArcellaUtilsError, Result as ArcellaUtilsResult};
 use crate::toml;
@@ -52,7 +52,7 @@ const MAX_CONFIG_DEPTH: usize = 5;
 ///
 /// # Returns
 ///
-/// A `Result` containing a `Vec<ConfigData>` representing the loaded configurations,
+/// A `Result` containing a `Vec<TomlFileData>` representing the loaded configurations,
 /// or an `ArcellaUtilsError` if a critical error occurs.
 pub async fn load_config_recursive(
     prefix: &[String],
@@ -62,7 +62,7 @@ pub async fn load_config_recursive(
     current_depth: usize,
     visited_paths: &mut HashSet<PathBuf>,
     warnings: &mut Vec<ConfigLoadWarning>,
-) -> ArcellaUtilsResult<Vec<ConfigData>> {
+) -> ArcellaUtilsResult<Vec<TomlFileData>> {
     // Check recursion depth
     if current_depth > MAX_CONFIG_DEPTH {
         warnings.push(ConfigLoadWarning::MaxDepthReached {
@@ -123,7 +123,7 @@ pub async fn load_config_recursive(
 ///
 /// # Returns
 ///
-/// A `Result` containing a `Vec<ConfigData>` representing the loaded configurations,
+/// A `Result` containing a `Vec<TomlFileData>` representing the loaded configurations,
 /// or an `ArcellaUtilsError` if a critical error occurs.
 pub async fn load_config_recursive_from_content(
     prefix: &[String],
@@ -133,12 +133,12 @@ pub async fn load_config_recursive_from_content(
     current_depth: usize,
     visited_paths: &mut HashSet<PathBuf>,
     warnings: &mut Vec<ConfigLoadWarning>,
-) -> ArcellaUtilsResult<Vec<ConfigData>> {
+) -> ArcellaUtilsResult<Vec<TomlFileData>> {
 
     let config = toml::parse_and_collect(&content, prefix)?;
 
      // --- Check values for Null or other issues (example) ---
-    // This could be extracted into a separate function for checking ConfigData
+    // This could be extracted into a separate function for checking TomlFileData
     for (key, value) in &config.values {
         if matches!(value, arcella_types::value::Value::Null) {
             warnings.push(ConfigLoadWarning::NullValueDetected {
@@ -187,14 +187,14 @@ pub async fn load_config_recursive_from_content(
 ///
 /// # Returns
 ///
-/// A `Result` containing a tuple `(Vec<ConfigData>, Vec<ConfigLoadWarning>)`.
+/// A `Result` containing a tuple `(Vec<TomlFileData>, Vec<ConfigLoadWarning>)`.
 /// The first element is the vector of loaded configuration data.
 /// The second element is the vector of collected non-critical warnings.
 pub async fn load_config_recursive_from_file(
     prefix: &[String],
     config_file_path: &Path,
     config_dir: &Path,
-) -> ArcellaUtilsResult<(Vec<ConfigData>, Vec<ConfigLoadWarning>)> {
+) -> ArcellaUtilsResult<(Vec<TomlFileData>, Vec<ConfigLoadWarning>)> {
     let mut visited = HashSet::new();
     let mut warnings = Vec::new(); // Create the warnings vector
 
@@ -434,6 +434,6 @@ mod tests {
         assert!(warnings.is_empty());
 
         // Check the type of the return value
-        let _: (Vec<ConfigData>, Vec<ConfigLoadWarning>) = (configs, warnings);
+        let _: (Vec<TomlFileData>, Vec<ConfigLoadWarning>) = (configs, warnings);
     }
 }

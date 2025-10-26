@@ -17,14 +17,13 @@
 //! [`parse_and_collect`]. For more granular control, you can use [`parse`] to get a
 //! `toml_edit::DocumentMut` and then use [`collect_paths`] to extract the data.
 
+use ordered_float::OrderedFloat;
 use std::collections::{HashMap};
 use toml_edit::{DocumentMut, Item as TomlEditItem, Value as TomlEditValue};
 
-use arcella_types::{
-    value::{
-        ConfigData,
-        Value as TomlValue
-    }
+use arcella_types::value::{
+    TypedError,
+    Value as TomlValue
 };
 
 use crate::{ArcellaUtilsError, ArcellaResult};
@@ -55,7 +54,7 @@ impl ValueExt for TomlValue {
         let result = match value {
             TomlEditValue::String(s) => Self::String(s.value().into()),
             TomlEditValue::Integer(i) => Self::Integer(*i.value()),
-            TomlEditValue::Float(f) => Self::Float(*f.value()),
+            TomlEditValue::Float(f) => Self::Float(OrderedFloat(*f.value())),
             TomlEditValue::Boolean(b) => Self::Boolean(*b.value()),
             TomlEditValue::Array(array) => {
                 let inner_values: ArcellaResult<Vec<TomlValue>> = array
@@ -73,6 +72,12 @@ impl ValueExt for TomlValue {
 
         Ok(result)
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TomlFileData {
+    pub includes: Vec<String>,
+    pub values: HashMap<String, TomlValue>,
 }
 
 /// Recursively traverses a TOML item and collects configuration values and `includes` paths.
@@ -183,11 +188,11 @@ pub fn parse(content: &str) -> ArcellaResult<DocumentMut> {
 ///
 /// # Returns
 ///
-/// A `Result` containing a `ConfigData` struct with the collected `includes` and `values`.
+/// A `Result` containing a `TomlFileData` struct with the collected `includes` and `values`.
 pub fn collect_paths(
     doc: &DocumentMut, 
     prefix: &[String]
-) -> ArcellaResult<ConfigData> {
+) -> ArcellaResult<TomlFileData> {
     let mut values: HashMap<String, TomlValue> = HashMap::new();
     let mut includes: Vec<String> = vec![];
     let depth = 0;
@@ -200,7 +205,7 @@ pub fn collect_paths(
         depth,
     )?;
 
-    Ok(ConfigData{includes, values})
+    Ok(TomlFileData{includes, values})
 }
 
 /// Parses a TOML file content and collects configuration values and `includes` paths.
@@ -215,13 +220,13 @@ pub fn collect_paths(
 /// 
 /// # Returns
 /// 
-/// A `Result` containing a `ConfigData` struct with:
+/// A `Result` containing a `TomlFileData` struct with:
 /// - `includes`: A `Vec<String>` of paths found under `includes` keys.
 /// - `values`: A `HashMap<String, TomlValue>` of configuration key-value pairs.
 pub fn parse_and_collect(
     content: &str,
     prefix: &[String],
-) -> ArcellaResult<ConfigData> {
+) -> ArcellaResult<TomlFileData> {
     let doc = parse(content)?;
     collect_paths(&doc, prefix)
 }
@@ -295,7 +300,7 @@ mod tests {
             expected_values.insert("root.server.port".to_string(), TomlValue::Integer(8080));
             expected_values.insert("root.server.host".to_string(), TomlValue::String("localhost".to_string()));
 
-            let expected_config = ConfigData{
+            let expected_config = TomlFileData{
                 includes: expected_includes,
                 values: expected_values
             };
@@ -329,10 +334,10 @@ mod tests {
             expected_values.insert("database.host".to_string(), TomlValue::String("db.example.com".to_string()));
             expected_values.insert("database.port".to_string(), TomlValue::Integer(5432));
             expected_values.insert("database.pool.max_connections".to_string(), TomlValue::Integer(10));
-            expected_values.insert("database.pool.timeout".to_string(), TomlValue::Float(30.5));
+            expected_values.insert("database.pool.timeout".to_string(), TomlValue::Float(OrderedFloat(30.5)));
             expected_values.insert("logging.level".to_string(), TomlValue::String("info".to_string()));
 
-            let expected_config = ConfigData{
+            let expected_config = TomlFileData{
                 includes: expected_includes,
                 values: expected_values
             };
@@ -359,7 +364,7 @@ mod tests {
             let mut expected_values = std::collections::HashMap::new();
             expected_values.insert("config.app.name".to_string(), TomlValue::String("my_app".to_string()));
 
-            let expected_config = ConfigData{
+            let expected_config = TomlFileData{
                 includes: expected_includes,
                 values: expected_values
             };
@@ -390,7 +395,7 @@ mod tests {
             let mut expected_values = std::collections::HashMap::new();
             expected_values.insert("app.app.version".to_string(), TomlValue::String("1.0.0".to_string()));
 
-            let expected_config = ConfigData{
+            let expected_config = TomlFileData{
                 includes: expected_includes,
                 values: expected_values
             };
@@ -410,7 +415,7 @@ mod tests {
             let expected_includes = Vec::new();
             let expected_values = HashMap::new();
 
-            let expected_config = ConfigData{
+            let expected_config = TomlFileData{
                 includes: expected_includes,
                 values: expected_values
             };
@@ -432,7 +437,7 @@ mod tests {
             let expected_includes = vec!["a.toml".to_string(), "b.toml".to_string()];
             let expected_values = HashMap::new();
 
-            let expected_config = ConfigData{
+            let expected_config = TomlFileData{
                 includes: expected_includes,
                 values: expected_values
             };
@@ -494,7 +499,7 @@ mod tests {
                 TomlValue::Integer(8080),
             ]));
 
-            let expected_config = ConfigData{
+            let expected_config = TomlFileData{
                 includes: expected_includes,
                 values: expected_values
             };
