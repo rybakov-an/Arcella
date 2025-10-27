@@ -1,4 +1,4 @@
-// arcella/arcella-types/src/value/mod.rs
+// arcella/arcella-types/src/config/mod.rs
 //
 // Copyright (c) 2025 Arcella Team
 //

@@ -14,7 +14,7 @@
 //! It handles circular dependencies, limits recursion depth, and collects warnings
 //! during the loading process for later reporting.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::collect_toml_includes;
@@ -23,6 +23,8 @@ use crate::toml::TomlFileData;
 use crate::ConfigLoadWarning; 
 use crate::error::{ArcellaUtilsError, Result as ArcellaUtilsResult};
 use crate::toml;
+
+use arcella_types::config::Value as TomlValue;
 
 /// The maximum allowed recursion depth when loading configuration files.
 /// This prevents potential stack overflow errors from circular `includes` or deeply nested structures.
@@ -140,7 +142,7 @@ pub async fn load_config_recursive_from_content(
      // --- Check values for Null or other issues (example) ---
     // This could be extracted into a separate function for checking TomlFileData
     for (key, value) in &config.values {
-        if matches!(value, arcella_types::value::Value::Null) {
+        if matches!(value, TomlValue::Null) {
             warnings.push(ConfigLoadWarning::NullValueDetected {
                 key: key.clone(),
                 file: config_file_path.to_path_buf(),
@@ -194,9 +196,9 @@ pub async fn load_config_recursive_from_file(
     prefix: &[String],
     config_file_path: &Path,
     config_dir: &Path,
-) -> ArcellaUtilsResult<(Vec<TomlFileData>, Vec<ConfigLoadWarning>)> {
+    warnings: &mut Vec<ConfigLoadWarning>,
+) -> ArcellaUtilsResult<Vec<TomlFileData>> {
     let mut visited = HashSet::new();
-    let mut warnings = Vec::new(); // Create the warnings vector
 
     let configs = load_config_recursive(
         prefix,
@@ -205,9 +207,9 @@ pub async fn load_config_recursive_from_file(
         config_dir,
         0,
         &mut visited,
-        &mut warnings).await?;
+        warnings).await?;
     // Return both the configs and the accumulated warnings
-    Ok((configs, warnings))
+    Ok(configs)
 }
 
 #[cfg(test)]
@@ -221,6 +223,8 @@ mod tests {
     async fn test_load_config_recursive_simple() {
         let temp_dir = TempDir::new().unwrap();
         let config_dir = temp_dir.path();
+        let mut warnings = Vec::new(); // Create the warnings vector
+
 
         let main_config_path = config_dir.join("main.toml");
         let main_config_content = r#"
@@ -229,10 +233,11 @@ mod tests {
         "#;
         fs::write(&main_config_path, main_config_content).unwrap();
 
-        let (configs, warnings) = load_config_recursive_from_file(
+        let configs = load_config_recursive_from_file(
             &["arcella".to_string()],
             &main_config_path,
             config_dir,
+            &mut warnings,
         ).await.unwrap();
 
         assert_eq!(configs.len(), 1); // Main config only
@@ -240,13 +245,14 @@ mod tests {
 
         // Check if the main config has the expected value
         let main_config = &configs[0];
-        assert_eq!(main_config.values.get("arcella.server.port").unwrap(), &arcella_types::value::Value::Integer(8080));
+        assert_eq!(main_config.values.get("arcella.server.port").unwrap(), &TomlValue::Integer(8080));
     }
 
     #[tokio::test]
     async fn test_load_config_recursive_with_includes() {
         let temp_dir = TempDir::new().unwrap();
         let config_dir = temp_dir.path();
+        let mut warnings = Vec::new(); // Create the warnings vector
 
         let main_config_path = config_dir.join("main.toml");
         let main_config_content = r#"
@@ -264,10 +270,11 @@ mod tests {
         "#;
         fs::write(&db_config_path, db_config_content).unwrap();
 
-        let (configs, warnings) = load_config_recursive_from_file(
+        let configs = load_config_recursive_from_file(
             &["arcella".to_string()],
             &main_config_path,
             config_dir,
+            &mut warnings,
         ).await.unwrap();
 
         assert_eq!(configs.len(), 2); // Main config and included db.toml
@@ -276,15 +283,16 @@ mod tests {
         // Check values from both configs
         let main_config = &configs[0];
         let db_config = &configs[1];
-        assert_eq!(main_config.values.get("arcella.server.port").unwrap(), &arcella_types::value::Value::Integer(8080));
-        assert_eq!(db_config.values.get("arcella.database.host").unwrap(), &arcella_types::value::Value::String("localhost".to_string()));
-        assert_eq!(db_config.values.get("arcella.database.port").unwrap(), &arcella_types::value::Value::Integer(5432));
+        assert_eq!(main_config.values.get("arcella.server.port").unwrap(), &TomlValue::Integer(8080));
+        assert_eq!(db_config.values.get("arcella.database.host").unwrap(), &TomlValue::String("localhost".to_string()));
+        assert_eq!(db_config.values.get("arcella.database.port").unwrap(), &TomlValue::Integer(5432));
     }
 
     #[tokio::test]
     async fn test_load_config_recursive_with_cycle() {
         let temp_dir = TempDir::new().unwrap();
         let config_dir = temp_dir.path();
+        let mut warnings = Vec::new(); // Create the warnings vector
 
         let main_config_path = config_dir.join("main.toml");
         let main_config_content = r#"
@@ -302,10 +310,11 @@ mod tests {
         "#;
         fs::write(&cycle_config_path, cycle_config_content).unwrap();
 
-        let (configs, warnings) = load_config_recursive_from_file(
+        let configs = load_config_recursive_from_file(
             &["arcella".to_string()],
             &main_config_path,
             config_dir,
+            &mut warnings,
         ).await.unwrap();
 
         // Should load main.toml and cycle.toml once, then detect the cycle and stop.
@@ -320,6 +329,7 @@ mod tests {
     async fn test_load_config_recursive_depth_limit() {
         let temp_dir = TempDir::new().unwrap();
         let config_dir = temp_dir.path();
+        let mut warnings = Vec::new(); // Create the warnings vector
 
         // Create a chain of files that exceeds MAX_CONFIG_DEPTH
         for i in 0..=MAX_CONFIG_DEPTH + 2 { // Create more files than the limit
@@ -330,10 +340,11 @@ mod tests {
         }
 
         let root_file = config_dir.join("level_0.toml");
-        let (configs, warnings) = load_config_recursive_from_file(
+        let configs = load_config_recursive_from_file(
             &["arcella".to_string()],
             &root_file,
             config_dir,
+            &mut warnings,
         ).await.unwrap();
 
         // Should stop after MAX_CONFIG_DEPTH
@@ -347,6 +358,7 @@ mod tests {
     async fn test_load_config_recursive_file_not_found() {
         let temp_dir = TempDir::new().unwrap();
         let config_dir = temp_dir.path();
+        let mut warnings = Vec::new(); // Create the warnings vector
 
         let main_config_path = config_dir.join("main.toml");
         let main_config_content = r#"
@@ -360,6 +372,7 @@ mod tests {
             &["arcella".to_string()],
             &main_config_path,
             config_dir,
+            &mut warnings,
         ).await;
 
         // Should return an error because nonexistent.toml is listed in includes
@@ -374,6 +387,7 @@ mod tests {
     async fn test_load_config_recursive_with_directory_in_includes() {
         let temp_dir = TempDir::new().unwrap();
         let config_dir = temp_dir.path();
+        let mut warnings = Vec::new(); // Create the warnings vector
 
         let main_config_path = config_dir.join("main.toml");
         let main_config_content = r#"
@@ -393,10 +407,11 @@ mod tests {
         "#;
         fs::write(&sub_config_path, sub_config_content).unwrap();
 
-        let (configs, warnings) = load_config_recursive_from_file(
+        let configs = load_config_recursive_from_file(
             &["arcella".to_string()],
             &main_config_path,
             config_dir,
+            &mut warnings,
         ).await.unwrap();
 
         assert_eq!(configs.len(), 2); // Main config and the file in subdir
@@ -404,8 +419,8 @@ mod tests {
 
         let main_config = &configs[0];
         let sub_config = &configs[1];
-        assert_eq!(main_config.values.get("arcella.server.port").unwrap(), &arcella_types::value::Value::Integer(8080));
-        assert_eq!(sub_config.values.get("arcella.logging.level").unwrap(), &arcella_types::value::Value::String("info".to_string()));
+        assert_eq!(main_config.values.get("arcella.server.port").unwrap(), &TomlValue::Integer(8080));
+        assert_eq!(sub_config.values.get("arcella.logging.level").unwrap(), &TomlValue::String("info".to_string()));
     }
 
     // Additional test for the convenience function's return tuple structure
@@ -413,6 +428,7 @@ mod tests {
     async fn test_load_config_recursive_from_file_return_type() {
         let temp_dir = TempDir::new().unwrap();
         let config_dir = temp_dir.path();
+        let mut warnings = Vec::new(); // Create the warnings vector
 
         let main_config_path = config_dir.join("main.toml");
         let main_config_content = r#"
@@ -425,11 +441,12 @@ mod tests {
             &["arcella".to_string()],
             &main_config_path,
             config_dir,
+            &mut warnings,
         ).await;
 
         assert!(result.is_ok());
 
-        let (configs, warnings) = result.unwrap();
+        let configs = result.unwrap();
         assert_eq!(configs.len(), 1);
         assert!(warnings.is_empty());
 

@@ -29,6 +29,7 @@ pub mod error;
 use crate::error::{ArcellaUtilsError, Result as ArcellaResult};
 
 pub mod toml;
+pub use toml::TomlFileData;
 
 pub mod warnings;
 pub use warnings::ConfigLoadWarning;
