@@ -10,7 +10,7 @@
 //! TOML parsing and value conversion utilities for Arcella.
 //!
 //! This module provides functions for:
-//! - Converting `toml_edit` values into `arcella_types::Value` for consistent representation.
+//! - Converting `toml_edit` values into `arcella_types::config::Value` for consistent representation.
 //! - Recursively traversing TOML documents to extract configuration values and `includes` paths.
 //!
 //! The primary entry point for parsing a TOML string and extracting its content is
@@ -19,7 +19,6 @@
 
 use indexmap::IndexMap;
 use ordered_float::OrderedFloat;
-use std::collections::{HashMap};
 use toml_edit::{DocumentMut, Item as TomlEditItem, Value as TomlEditValue};
 
 use arcella_types::config::{
@@ -33,11 +32,11 @@ use crate::{ArcellaUtilsError, ArcellaResult};
 /// This prevents potential stack overflow errors from malformed or deeply nested documents.
 pub const MAX_TOML_DEPTH: usize = 10;
 
-/// Extension trait for converting `toml_edit::Value` into `arcella_types::Value`.
+/// Extension trait for converting `toml_edit::Value` into `arcella_types::config::Value`.
 ///
 /// This allows for a consistent representation of TOML values across Arcella components.
 pub trait ValueExt {
-    /// Converts a `toml_edit::Value` into a `arcella_types::Value`.
+    /// Converts a `toml_edit::Value` into a `arcella_types::config::Value`.
     ///
     /// # Arguments
     ///
@@ -45,7 +44,7 @@ pub trait ValueExt {
     ///
     /// # Returns
     ///
-    /// A `Result` containing the converted `arcella_types::Value` or an error
+    /// A `Result` containing the converted `arcella_types::config::Value` or an error
     /// if the TOML type is unsupported.
     fn from_toml_value(value: &TomlEditValue) -> ArcellaResult<TomlValue>;
 }

@@ -72,7 +72,7 @@ Configuration loading and directory setup occur in a strict sequence:
 3.  **Ensure `config_dir` and `arcella.toml`/`arcella.template.toml` files exist**: `ensure_config_template(&config_dir)` is called.
 4.  **Load configs**: `arcella_fs_utils::load_config_recursive_from_content` is called with `DEFAULT_CONFIG_CONTENT`, `arcella.toml`, and `includes`.
 5.  **Merge layers considering `#redef`**: The logic for merging `configs` into `final_values` is executed.
-6.  **Extract, sort, and index parameters**: The `arcella_types::value::ConfigData` object is created.
+6.  **Extract, sort, and index parameters**: The `arcella_types::config::ConfigData` object is created.
 7.  **Create `ArcellaConfig`**: The `ArcellaConfig` structure is created and returned with the extracted key values.
 8.  **Initialize logging**: The logging system is initialized using `ArcellaConfig` and creates `log_dir`.
 9.  **Create other directories**: `StorageManager` creates `cache_dir` and `modules_dir` based on `ArcellaConfig`.

@@ -50,7 +50,7 @@ pub struct TypedError {
 /// # Examples
 ///
 /// ```
-/// use arcella_types::value::Value;
+/// use arcella_types::config::Value;
 /// use ordered_float::OrderedFloat;
 ///
 /// // Creating a simple value
@@ -203,7 +203,7 @@ impl ConfigData {
     /// # Example
     ///
     /// ```
-    /// use arcella_types::value::{ConfigData, Value};
+    /// use arcella_types::config::{ConfigData, Value};
     /// use indexmap::IndexMap;
     ///
     /// let mut input = IndexMap::new();
@@ -274,7 +274,7 @@ impl ConfigData {
     /// # Example
     ///
     /// ```
-    /// use arcella_types::value::{ConfigData, Value};
+    /// use arcella_types::config::{ConfigData, Value};
     /// use indexmap::IndexMap;
     ///
     /// let mut input = IndexMap::new();

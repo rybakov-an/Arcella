@@ -9,7 +9,7 @@
 
 use futures::future;
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use indexmap::{map::Entry, IndexMap};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -361,10 +361,7 @@ fn merge_config(
 
 #[cfg(test)]
 mod tests {
-    use std::default;
-
     use super::*;
-    use arcella_types::config::Value as TomlValue;
 
     fn make_toml_value(s: &str) -> TomlValue {
         TomlValue::String(s.to_string())

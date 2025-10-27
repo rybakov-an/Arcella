@@ -149,7 +149,7 @@ pub async fn load_config_recursive_from_content(
             });
         }
         // For other checks if Value can be Error or another problematic type
-        // if matches!(value, arcella_types::value::Value::Error(_)) { ... }
+        // if matches!(value, arcella_types::config::value::Value::Error(_)) { ... }
     }
 
     let mut all_configs = vec![config.clone()];
