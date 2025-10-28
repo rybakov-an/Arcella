@@ -9,7 +9,7 @@
 
 use futures::future;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use indexmap::{map::Entry, IndexMap, IndexSet};
 use std::path::{Path, PathBuf};
@@ -170,34 +170,42 @@ pub async fn load() -> ArcellaResult<(ArcellaConfig, Vec<fs_utils::ConfigLoadWar
     let config_dir = base_dir.join("config");    
 
     // 3. Ensure config_dir exists
-    let (main_config_path, mut warnings) = ensure_main_config_exists(&config_dir).await?;
+    let (main_config_path, warnings) = ensure_main_config_exists(&config_dir).await?;
 
+    // 4. Load default config
+    let mut state  = fs_utils::ConfigLoadState {
+        config_files: IndexSet::new(),
+        visited_paths: HashSet::new(),
+        warnings: warnings,
+    };
+
+    let (file_idx, _) = state.config_files.insert_full(
+        PathBuf::from_str(DEFAULT_CONFIG_FILENAME).unwrap()
+    );
     let default_config = fs_utils::toml::parse_and_collect(
         DEFAULT_CONFIG_CONTENT,
         &vec!["arcella".to_string()],
+        file_idx,
     )?;
 
-    // 4. Load arcella.toml
+    // 5. Load arcella.toml and includes
     let params = fs_utils::ConfigLoadParams {
         prefix: vec!["arcella".to_string()],
         config_dir: config_dir.to_path_buf(),
     };
 
-    let mut config_files: IndexSet<PathBuf> = IndexSet::new();
-    config_files.insert(PathBuf::from_str(DEFAULT_CONFIG_FILENAME).unwrap());
-
     let configs = fs_utils::load_config_recursive_from_file(
         &params,
+        &mut state,
         &main_config_path,
-        &mut warnings,
     ).await?;
 
     let mut final_values = merge_config(
         &default_config,
         &configs,
-        &config_files,
+        &state.config_files,
         &config_dir,
-        &mut warnings,
+        &mut state.warnings,
     )?;
     final_values.sort_keys();
 
@@ -245,7 +253,7 @@ pub async fn load() -> ArcellaResult<(ArcellaConfig, Vec<fs_utils::ConfigLoadWar
         cache_dir: cache_dir,
         socket_path: socket_path,
         integrity_check_paths: vec![],
-    }, warnings))
+    }, state.warnings))
 }
 
 fn merge_config(
@@ -254,7 +262,7 @@ fn merge_config(
     config_files: &IndexSet<PathBuf>,
     config_dir: &Path,
     warnings: &mut Vec<fs_utils::ConfigLoadWarning>
-) -> Result< IndexMap<String, (TomlValue, usize)>, ArcellaError> {
+) -> Result< ConfigValues, ArcellaError> {
     
     let mut preliminary_values: IndexMap<String, ResolvedValue> = IndexMap::new();
 
@@ -314,7 +322,7 @@ fn merge_config(
     let main_idx = config_files.get_index_of(&config_dir.join(MAIN_CONFIG_FILENAME)).unwrap();
     let default_idx = config_files.get_index_of(&PathBuf::from_str(DEFAULT_CONFIG_FILENAME).unwrap()).unwrap();
 
-    let mut final_values: IndexMap<String, (TomlValue, usize)> = IndexMap::new();
+    let mut final_values: ConfigValues = IndexMap::new();
 
     // Create final config from default config
     // Выполняем первичное заполнение из конфигурации по умолчанию

@@ -98,8 +98,9 @@ impl ValueExt for TomlValue {
 pub fn collect_paths_recursive(
     item: &TomlEditItem,
     current_path: &Vec<String>,
+    file_idx: usize,
     includes: &mut Vec<String>,
-    values: &mut IndexMap<String, (TomlValue, usize)>,
+    values: &mut ConfigValues,
     depth: usize,
 ) -> ArcellaResult<()> {
     if depth > MAX_TOML_DEPTH {
@@ -132,12 +133,13 @@ pub fn collect_paths_recursive(
                 } else if let TomlEditItem::Value(subvalue) = value {
                     values.insert(
                         key_path.join("."), 
-                        (TomlValue::from_toml_value(subvalue)?, usize::MAX)
+                        (TomlValue::from_toml_value(subvalue)?, file_idx)
                     );
                 } else {
                     collect_paths_recursive(
                         value,
                         &key_path,
+                        file_idx,
                         includes,
                         values,
                         depth + 1,
@@ -187,14 +189,16 @@ pub fn parse(content: &str) -> ArcellaResult<DocumentMut> {
 pub fn collect_paths(
     doc: &DocumentMut, 
     prefix: &Vec<String>,
+    file_idx: usize,
 ) -> ArcellaResult<TomlFileData> {
-    let mut values: IndexMap<String, (TomlValue, usize)> = IndexMap::new();
+    let mut values: ConfigValues = IndexMap::new();
     let mut includes: Vec<String> = vec![];
     let depth = 0;
 
     collect_paths_recursive(
         doc.as_item(),
         prefix,
+        file_idx,
         &mut includes,
         &mut values,
         depth,
@@ -221,9 +225,10 @@ pub fn collect_paths(
 pub fn parse_and_collect(
     content: &str,
     prefix: &Vec<String>,
+    file_idx: usize,
 ) -> ArcellaResult<TomlFileData> {
     let doc = parse(content)?;
-    collect_paths(&doc, prefix)
+    collect_paths(&doc, prefix, file_idx)
 }
 
 #[cfg(test)]
@@ -253,6 +258,7 @@ mod tests {
         let result = collect_paths_recursive(
             main_doc.as_item(),
             &vec!["arcella".into()],
+            0,
             &mut includes,
             &mut values,
             depth,
@@ -286,7 +292,8 @@ mod tests {
 
             let config = parse_and_collect(
                 config_content,
-                &vec!["root".into()]
+                &vec!["root".into()],
+                0,
             ).unwrap();
 
             let expected_includes = vec!["config.d/*.toml".to_string()];
@@ -320,7 +327,8 @@ mod tests {
 
             let config = parse_and_collect(
                 config_content,
-                &vec![]
+                &vec![],
+                0,
             ).unwrap();
 
             let expected_includes = Vec::new();
@@ -351,7 +359,8 @@ mod tests {
 
             let config = parse_and_collect(
                 config_content,
-                &vec!["config".into()]
+                &vec!["config".into()],
+                0
             ).unwrap();
 
             let expected_includes = vec!["overrides.toml".to_string()];
@@ -378,7 +387,8 @@ mod tests {
 
             let config = parse_and_collect(
                 config_content,
-                &vec!["app".into()]
+                &vec!["app".into()],
+                0,
             ).unwrap();
 
             let expected_includes = vec![
@@ -404,7 +414,8 @@ mod tests {
 
             let config = parse_and_collect(
                 config_content,
-                &vec![]
+                &vec![],
+                0,
             ).unwrap();
 
             let expected_includes = Vec::new();
@@ -426,7 +437,8 @@ mod tests {
 
             let config = parse_and_collect(
                 config_content,
-                &vec!["top".into()]
+                &vec!["top".into()],
+                0,
             ).unwrap();
 
             let expected_includes = vec!["a.toml".to_string(), "b.toml".to_string()];
@@ -449,7 +461,8 @@ mod tests {
 
             let result = parse_and_collect(
                 config_content,
-                &vec![]
+                &vec![],
+                0,
             );
 
             assert!(result.is_err());
@@ -475,7 +488,8 @@ mod tests {
 
             let config = parse_and_collect(
                 config_content,
-                &vec![]
+                &vec![],
+                0,
             ).unwrap();
 
             let expected_includes = Vec::new();

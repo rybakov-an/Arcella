@@ -7,12 +7,12 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use indexmap::IndexMap;
+use indexmap::IndexSet;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use arcella_types::config::Value as TomlValue;
-
+use arcella_types::config::ConfigValues;
+use crate::ConfigLoadWarning; 
 
 // Неизменяемые параметры — можно клонировать свободно
 #[derive(Debug, Clone)]
@@ -23,13 +23,13 @@ pub struct ConfigLoadParams {
 
 // Изменяемое состояние — передаётся по &mut
 pub struct ConfigLoadState {
-    pub current_depth: usize,
+    pub config_files: IndexSet<PathBuf>,
     pub visited_paths: HashSet<PathBuf>,
+    pub warnings: Vec<ConfigLoadWarning>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TomlFileData {
     pub includes: Vec<String>,
-    pub values: IndexMap<String, (TomlValue, usize)>,
+    pub values: ConfigValues,
 }
-
