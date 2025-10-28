@@ -18,11 +18,10 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::collect_toml_includes;
-use crate::toml::TomlFileData;
-
 use crate::ConfigLoadWarning; 
 use crate::error::{ArcellaUtilsError, Result as ArcellaUtilsResult};
 use crate::toml;
+use crate::types::*;
 
 use arcella_types::config::Value as TomlValue;
 
@@ -57,10 +56,9 @@ const MAX_CONFIG_DEPTH: usize = 5;
 /// A `Result` containing a `Vec<TomlFileData>` representing the loaded configurations,
 /// or an `ArcellaUtilsError` if a critical error occurs.
 pub async fn load_config_recursive(
-    prefix: &[String],
+    params: &ConfigLoadParams,
     config_file_path: &Path,
     included_from: Option<&Path>,
-    config_dir: &Path,
     current_depth: usize,
     visited_paths: &mut HashSet<PathBuf>,
     warnings: &mut Vec<ConfigLoadWarning>,
@@ -93,10 +91,9 @@ pub async fn load_config_recursive(
         })?;
 
     let all_configs = load_config_recursive_from_content(
-        prefix,
+        params,
         &content,
         config_file_path,
-        config_dir,
         current_depth,
         visited_paths,
         warnings,
@@ -128,20 +125,19 @@ pub async fn load_config_recursive(
 /// A `Result` containing a `Vec<TomlFileData>` representing the loaded configurations,
 /// or an `ArcellaUtilsError` if a critical error occurs.
 pub async fn load_config_recursive_from_content(
-    prefix: &[String],
+    params: &ConfigLoadParams,
     content: &str,
     config_file_path: &Path,
-    config_dir: &Path,
     current_depth: usize,
     visited_paths: &mut HashSet<PathBuf>,
     warnings: &mut Vec<ConfigLoadWarning>,
 ) -> ArcellaUtilsResult<Vec<TomlFileData>> {
 
-    let config = toml::parse_and_collect(&content, prefix)?;
+    let config = toml::parse_and_collect(&content, &params.prefix)?;
 
      // --- Check values for Null or other issues (example) ---
     // This could be extracted into a separate function for checking TomlFileData
-    for (key, value) in &config.values {
+    for (key, (value, _)) in &config.values {
         if matches!(value, TomlValue::Null) {
             warnings.push(ConfigLoadWarning::NullValueDetected {
                 key: key.clone(),
@@ -154,16 +150,15 @@ pub async fn load_config_recursive_from_content(
 
     let mut all_configs = vec![config.clone()];
 
-    let include_paths = collect_toml_includes(&config.includes, config_dir).await?;
+    let include_paths = collect_toml_includes(&config.includes, &params.config_dir).await?;
 
     // --- Handle the recursive calls with Box::pin ---
     for include_path in include_paths {
         // Pin the future returned by the recursive call
         let sub_configs_future = Box::pin(load_config_recursive(
-            prefix,
+            params,
             &include_path,
             Some(config_file_path),
-            config_dir,
             current_depth + 1,
             visited_paths,
             warnings,
@@ -193,18 +188,16 @@ pub async fn load_config_recursive_from_content(
 /// The first element is the vector of loaded configuration data.
 /// The second element is the vector of collected non-critical warnings.
 pub async fn load_config_recursive_from_file(
-    prefix: &[String],
+    params: &ConfigLoadParams,
     config_file_path: &Path,
-    config_dir: &Path,
     warnings: &mut Vec<ConfigLoadWarning>,
 ) -> ArcellaUtilsResult<Vec<TomlFileData>> {
     let mut visited = HashSet::new();
 
     let configs = load_config_recursive(
-        prefix,
+        params,
         config_file_path, 
         None,
-        config_dir,
         0,
         &mut visited,
         warnings).await?;
@@ -233,10 +226,14 @@ mod tests {
         "#;
         fs::write(&main_config_path, main_config_content).unwrap();
 
+        let params = ConfigLoadParams {
+            prefix: vec!["arcella".to_string()],
+            config_dir: config_dir.to_path_buf(),
+        };
+
         let configs = load_config_recursive_from_file(
-            &["arcella".to_string()],
+            &params,
             &main_config_path,
-            config_dir,
             &mut warnings,
         ).await.unwrap();
 
@@ -245,7 +242,7 @@ mod tests {
 
         // Check if the main config has the expected value
         let main_config = &configs[0];
-        assert_eq!(main_config.values.get("arcella.server.port").unwrap(), &TomlValue::Integer(8080));
+        assert_eq!(main_config.values.get("arcella.server.port").unwrap().0, TomlValue::Integer(8080));
     }
 
     #[tokio::test]
@@ -270,10 +267,14 @@ mod tests {
         "#;
         fs::write(&db_config_path, db_config_content).unwrap();
 
+        let params = ConfigLoadParams {
+            prefix: vec!["arcella".to_string()],
+            config_dir: config_dir.to_path_buf(),
+        };
+
         let configs = load_config_recursive_from_file(
-            &["arcella".to_string()],
+            &params,
             &main_config_path,
-            config_dir,
             &mut warnings,
         ).await.unwrap();
 
@@ -283,9 +284,9 @@ mod tests {
         // Check values from both configs
         let main_config = &configs[0];
         let db_config = &configs[1];
-        assert_eq!(main_config.values.get("arcella.server.port").unwrap(), &TomlValue::Integer(8080));
-        assert_eq!(db_config.values.get("arcella.database.host").unwrap(), &TomlValue::String("localhost".to_string()));
-        assert_eq!(db_config.values.get("arcella.database.port").unwrap(), &TomlValue::Integer(5432));
+        assert_eq!(main_config.values.get("arcella.server.port").unwrap().0, TomlValue::Integer(8080));
+        assert_eq!(db_config.values.get("arcella.database.host").unwrap().0, TomlValue::String("localhost".to_string()));
+        assert_eq!(db_config.values.get("arcella.database.port").unwrap().0, TomlValue::Integer(5432));
     }
 
     #[tokio::test]
@@ -310,10 +311,14 @@ mod tests {
         "#;
         fs::write(&cycle_config_path, cycle_config_content).unwrap();
 
+        let params = ConfigLoadParams {
+            prefix: vec!["arcella".to_string()],
+            config_dir: config_dir.to_path_buf(),
+        };
+
         let configs = load_config_recursive_from_file(
-            &["arcella".to_string()],
+            &params,
             &main_config_path,
-            config_dir,
             &mut warnings,
         ).await.unwrap();
 
@@ -340,10 +345,15 @@ mod tests {
         }
 
         let root_file = config_dir.join("level_0.toml");
+
+        let params = ConfigLoadParams {
+            prefix: vec!["arcella".to_string()],
+            config_dir: config_dir.to_path_buf(),
+        };
+
         let configs = load_config_recursive_from_file(
-            &["arcella".to_string()],
+            &params,
             &root_file,
-            config_dir,
             &mut warnings,
         ).await.unwrap();
 
@@ -368,16 +378,20 @@ mod tests {
         "#;
         fs::write(&main_config_path, main_config_content).unwrap();
 
-        let result = load_config_recursive_from_file(
-            &["arcella".to_string()],
+        let params = ConfigLoadParams {
+            prefix: vec!["arcella".to_string()],
+            config_dir: config_dir.to_path_buf(),
+        };
+
+        let configs = load_config_recursive_from_file(
+            &params,
             &main_config_path,
-            config_dir,
             &mut warnings,
         ).await;
 
         // Should return an error because nonexistent.toml is listed in includes
-        assert!(result.is_err());
-        match result.unwrap_err() {
+        assert!(configs.is_err());
+        match configs.unwrap_err() {
             ArcellaUtilsError::PathNotFound { .. } => {} // Expected error type
             _ => panic!("Expected ArcellaUtilsError::PathNotFound"),
         }
@@ -407,10 +421,14 @@ mod tests {
         "#;
         fs::write(&sub_config_path, sub_config_content).unwrap();
 
+        let params = ConfigLoadParams {
+            prefix: vec!["arcella".to_string()],
+            config_dir: config_dir.to_path_buf(),
+        };
+
         let configs = load_config_recursive_from_file(
-            &["arcella".to_string()],
+            &params,
             &main_config_path,
-            config_dir,
             &mut warnings,
         ).await.unwrap();
 
@@ -419,8 +437,8 @@ mod tests {
 
         let main_config = &configs[0];
         let sub_config = &configs[1];
-        assert_eq!(main_config.values.get("arcella.server.port").unwrap(), &TomlValue::Integer(8080));
-        assert_eq!(sub_config.values.get("arcella.logging.level").unwrap(), &TomlValue::String("info".to_string()));
+        assert_eq!(main_config.values.get("arcella.server.port").unwrap().0, TomlValue::Integer(8080));
+        assert_eq!(sub_config.values.get("arcella.logging.level").unwrap().0, TomlValue::String("info".to_string()));
     }
 
     // Additional test for the convenience function's return tuple structure
@@ -437,16 +455,20 @@ mod tests {
         "#;
         fs::write(&main_config_path, main_config_content).unwrap();
 
-        let result = load_config_recursive_from_file(
-            &["arcella".to_string()],
+        let params = ConfigLoadParams {
+            prefix: vec!["arcella".to_string()],
+            config_dir: config_dir.to_path_buf(),
+        };
+
+        let configs = load_config_recursive_from_file(
+            &params,
             &main_config_path,
-            config_dir,
             &mut warnings,
         ).await;
 
-        assert!(result.is_ok());
+        assert!(configs.is_ok());
 
-        let configs = result.unwrap();
+        let configs = configs.unwrap();
         assert_eq!(configs.len(), 1);
         assert!(warnings.is_empty());
 

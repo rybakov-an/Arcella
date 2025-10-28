@@ -103,6 +103,8 @@ pub enum Value {
     TypedError(TypedError),
 }
 
+pub type ConfigValues = IndexMap<String, (Value, usize)>;
+
 /// Represents an entry within a section of the configuration.
 /// It can be either a reference to a value key or a name of a subsection.
 #[derive(Debug, Clone, PartialEq)]
