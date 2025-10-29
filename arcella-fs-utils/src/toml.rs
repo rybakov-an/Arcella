@@ -32,6 +32,9 @@ use arcella_types::config::{ConfigValues, Value as TomlValue};
 use crate::{ArcellaUtilsError, ArcellaResult};
 use crate::types::*;
 
+/// Key name used to identify file inclusion directives in TOML.
+const INCLUDES_KEY: &str = "includes";
+
 /// Extension trait to convert `toml_edit::Value` into Arcella’s canonical `Value`.
 ///
 /// Only TOML scalar types and arrays of scalars are supported.
@@ -80,13 +83,17 @@ impl ValueExt for TomlValue {
 /// This function walks the TOML structure starting from `item`, building dot-separated
 /// configuration keys from the current path. It handles two special cases:
 ///
-/// - Keys named `"includes"` are treated as file inclusion directives. Their values
+/// - Keys named [`INCLUDES_KEY`] are treated as file inclusion directives. Their values
 ///   may be either a string or an array of strings; all valid string values are added
 ///   to the `includes` output vector.
 /// - All other scalar values are converted and stored in `values` with their full path.
 ///
 /// Table nesting deeper than [`MAX_TOML_DEPTH`] is pruned (not traversed further),
 /// and the function returns [`TraversalResult::Pruned`].
+///
+/// **Note**: This function does **not** handle `[[array-of-tables]]` constructs.
+/// Items of type `ArrayOfTables` are silently ignored (no error, no warning).
+/// If support is needed, it must be added explicitly.
 ///
 /// # Arguments
 ///
@@ -121,7 +128,7 @@ pub fn collect_paths_recursive(
                 let mut key_path = current_path.to_vec();
                 key_path.push(key.to_string());
 
-                if key == "includes" {
+                if key == INCLUDES_KEY {
                 // Handle both scalar and array forms of 'includes'
                     match value {
                         TomlEditItem::Value(TomlEditValue::Array(arr)) => {

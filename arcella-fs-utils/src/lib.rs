@@ -256,14 +256,17 @@ pub async fn collect_toml_includes(
                 } else if metadata.is_dir() {
                     include_dirs.push(path);
                 } else {
-                    // Path exists but is neither a file nor a directory (e.g., symlink to nothing, special file)
-                    // Treat it as not found.
-                    return Err(ArcellaUtilsError::PathNotFound { path: path.into() });
+                    // Path exists but is not a regular file or directory (e.g., socket, device)
+                    warnings.push(ConfigLoadWarning::SkippedInvalidFile {
+                        path: path.clone(),
+                    });
                 }
             }
             Err(_) => {
-                // fs::metadata failed, meaning the path does not exist or is inaccessible.
-                return Err(ArcellaUtilsError::PathNotFound { path: path.into() });
+                // Path does not exist → silently skip and warn
+                warnings.push(ConfigLoadWarning::SkippedInvalidFile {
+                    path: path.clone(),
+                });
             }
         }
     }
@@ -580,11 +583,8 @@ mod tests {
             // Then in collect_toml_includes, fs::metadata(path) will be called and will fail.
             // Therefore, it should return an error.
             let result = collect_toml_includes(&includes, config_dir, &mut warnings).await;
-            assert!(result.is_err());
-            match result.unwrap_err() {
-                ArcellaUtilsError::PathNotFound { .. } => {}, // OK
-                _ => panic!("Expected ArcellaError::PathNotFound"),
-            }
+            assert!(result.is_ok());
+            assert!(warnings.len() == 1, "Should have one warning about nonexistent dir");
         }
 
         #[tokio::test]
@@ -602,11 +602,8 @@ mod tests {
             // Then in collect_toml_includes, fs::metadata(path) will be called and will fail.
             // Therefore, it should return an error.
             let result = collect_toml_includes(&includes, config_dir, &mut warnings).await;
-            assert!(result.is_err());
-            match result.unwrap_err() {
-                ArcellaUtilsError::PathNotFound { .. } => {}, // OK
-                _ => panic!("Expected ArcellaError::PathNotFound"),
-            }
+            assert!(result.is_ok());
+            assert!(warnings.len() == 1, "Should have one warning about nonexistent file");
         }
 
         #[tokio::test]

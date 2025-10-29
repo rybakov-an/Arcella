@@ -24,9 +24,20 @@
 //! - **Warning collection**: Non-fatal issues (e.g., pruned subtrees, duplicate includes) are collected for later inspection.
 //! - **Deterministic ordering**: Included files from globs are sorted lexicographically to ensure consistent behavior.
 
-use indexmap::IndexSet;
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+//!
+//! ## Path Resolution
+//!
+//! All paths in `includes` are resolved **relative to `ConfigLoadParams::config_dir`**,  
+//! *not* relative to the including file. This ensures predictable and reproducible behavior
+//! regardless of the inclusion chain.
+//!
+//! ## Missing Files
+//!
+//! If a path in `includes` does not exist or is not a valid TOML file (e.g., a `.template.toml` file),
+//! it is **silently skipped** and a `SkippedInvalidFile` warning is recorded.
+//! This allows optional configuration files (e.g., `local.toml`) to be absent without causing an error.
+
+use std::path::Path;
 
 use crate::collect_toml_includes;
 use crate::ConfigLoadWarning; 
@@ -63,7 +74,7 @@ const MAX_CONFIG_DEPTH: usize = 5;
 ///
 /// * `params` – Immutable loading parameters (prefix, config directory).
 /// * `state` – Mutable state tracking visited files, loaded files, and warnings.
-/// * `config_file_path` – The path to the configuration file to load.
+/// * `config_file_path` – The absolute or relative path to the configuration file to load.
 /// * `included_from` – The file that included `config_file_path` (for cycle diagnostics).
 /// * `current_depth` – Current inclusion depth (0 for the root file).
 ///
@@ -99,8 +110,8 @@ pub async fn load_config_recursive(
         return Ok(vec![]); // Not an error, just break the recursion
     }
 
-    state.visited_paths.insert(config_file_path.to_path_buf());
-    let (file_idx, _) = state.config_files.insert_full(config_file_path.to_path_buf());
+    // Read file content first; only mark as visited after successful read
+    // to avoid poisoning the state on transient I/O errors.    
 
     let content = tokio::fs::read_to_string(config_file_path)
         .await
@@ -108,6 +119,10 @@ pub async fn load_config_recursive(
             source: e,
             path: config_file_path.to_path_buf(),
         })?;
+
+    // Now it's safe to mark the file as visited
+    state.visited_paths.insert(config_file_path.to_path_buf());
+    let (file_idx, _) = state.config_files.insert_full(config_file_path.to_path_buf());
 
     let all_configs = load_config_recursive_from_content(
         params,
@@ -166,12 +181,11 @@ pub async fn load_config_recursive_from_content(
                 file: config_file_path.to_path_buf(),
             });
         }
-        // For other checks if Value can be Error or another problematic type
-        // if matches!(value, arcella_types::config::value::Value::Error(_)) { ... }
     }
 
     // Resolve and expand includes (e.g., globs, directories) into concrete file paths.
     // The result is sorted lexicographically to ensure deterministic loading order.
+    // Invalid or missing paths are skipped and recorded as warnings.
     let include_paths = collect_toml_includes(
         &config.includes, 
         &params.config_dir, 
@@ -213,21 +227,22 @@ pub async fn load_config_recursive_from_file(
     config_file_path: &Path,
 ) -> ArcellaUtilsResult<Vec<TomlFileData>> {
 
-    let configs = load_config_recursive(
+    load_config_recursive(
         params,
         state,
         config_file_path, 
         None,
         0,
-    ).await?;
-    // Return both the configs and the accumulated warnings
-    Ok(configs)
+    ).await
+
 }
 
 #[cfg(test)]
 mod tests {
     use std::fs;
     use tempfile::TempDir;
+    use indexmap::IndexSet;
+    use std::collections::HashSet;
 
     use super::*;
 
@@ -429,11 +444,8 @@ mod tests {
         ).await;
 
         // Should return an error because nonexistent.toml is listed in includes
-        assert!(configs.is_err());
-        match configs.unwrap_err() {
-            ArcellaUtilsError::PathNotFound { .. } => {} // Expected error type
-            _ => panic!("Expected ArcellaUtilsError::PathNotFound"),
-        }
+        assert!(configs.is_ok());
+        assert!(state.warnings.iter().any(|w| matches!(w, ConfigLoadWarning::SkippedInvalidFile { .. })));
     }
 
     #[tokio::test]
