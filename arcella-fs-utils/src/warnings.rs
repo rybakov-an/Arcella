@@ -1,4 +1,4 @@
-// arcella/arcella-fs-utils/src/warning.rs
+// arcella/arcella-fs-utils/src/warnings.rs
 //
 // Copyright (c) 2025 Arcella Team
 //
@@ -40,6 +40,10 @@ pub enum ConfigLoadWarning {
 
     /// Represents a warning that occurs when the maximum depth of includes is reached.
     MaxDepthReached { path: PathBuf },
+
+    /// A TOML document subtree was skipped because it exceeded the maximum allowed nesting depth
+    /// (`MAX_TOML_DEPTH`). This is not an error, but some configuration keys may be missing.
+    Pruned { path: PathBuf },
 }
 
 impl std::fmt::Display for ConfigLoadWarning {
@@ -68,6 +72,9 @@ impl std::fmt::Display for ConfigLoadWarning {
             }
             ConfigLoadWarning::MaxDepthReached { path } => {
                 write!(f, "Maximum include depth reached for file {:?}", path)
+            }
+            ConfigLoadWarning::Pruned { path } => {
+                write!(f, "Pruned file {:?}", path)
             }
         }
     }

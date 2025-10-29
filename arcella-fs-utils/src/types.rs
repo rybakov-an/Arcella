@@ -14,6 +14,16 @@ use std::path::PathBuf;
 use arcella_types::config::ConfigValues;
 use crate::ConfigLoadWarning; 
 
+/// Maximum allowed recursion depth when traversing nested TOML tables.
+///
+/// Prevents stack overflow due to deeply nested or maliciously crafted TOML.
+/// This limit applies only to table nesting, not array depth or file inclusion depth
+/// (which is controlled by `MAX_CONFIG_DEPTH` in `config_loader.rs`).
+pub const MAX_TOML_DEPTH: usize = 10;
+
+/// Template file suffix
+pub const TEMPLATE_TOML_SUFFIX: &str = ".template.toml";
+
 // Неизменяемые параметры — можно клонировать свободно
 #[derive(Debug, Clone)]
 pub struct ConfigLoadParams {
@@ -33,3 +43,11 @@ pub struct TomlFileData {
     pub includes: Vec<String>,
     pub values: ConfigValues,
 }
+
+/// Indicates the outcome of a recursive traversal of a TOML document.
+///
+/// - `Full`: The entire subtree was processed without hitting depth limits.
+/// - `Pruned`: Traversal was stopped early because `MAX_TOML_DEPTH` was exceeded.
+///   This is a non-fatal condition; a warning is issued, but loading continues.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TraversalResult { Full, Pruned }

@@ -182,7 +182,7 @@ pub async fn load() -> ArcellaResult<(ArcellaConfig, Vec<fs_utils::ConfigLoadWar
     let (file_idx, _) = state.config_files.insert_full(
         PathBuf::from_str(DEFAULT_CONFIG_FILENAME).unwrap()
     );
-    let default_config = fs_utils::toml::parse_and_collect(
+    let (default_config, _) = fs_utils::toml::parse_and_collect(
         DEFAULT_CONFIG_CONTENT,
         &vec!["arcella".to_string()],
         file_idx,
