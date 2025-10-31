@@ -1,4 +1,4 @@
-// arcella/arcella-types/src/value/mod.rs
+// arcella/arcella-types/src/config/mod.rs
 //
 // Copyright (c) 2025 Arcella Team
 //
@@ -50,7 +50,7 @@ pub struct TypedError {
 /// # Examples
 ///
 /// ```
-/// use arcella_types::value::Value;
+/// use arcella_types::config::Value;
 /// use ordered_float::OrderedFloat;
 ///
 /// // Creating a simple value
@@ -102,6 +102,8 @@ pub enum Value {
     /// A typed error value, useful for signaling errors within data structures.
     TypedError(TypedError),
 }
+
+pub type ConfigValues = IndexMap<String, (Value, usize)>;
 
 /// Represents an entry within a section of the configuration.
 /// It can be either a reference to a value key or a name of a subsection.
@@ -203,7 +205,7 @@ impl ConfigData {
     /// # Example
     ///
     /// ```
-    /// use arcella_types::value::{ConfigData, Value};
+    /// use arcella_types::config::{ConfigData, Value};
     /// use indexmap::IndexMap;
     ///
     /// let mut input = IndexMap::new();
@@ -274,7 +276,7 @@ impl ConfigData {
     /// # Example
     ///
     /// ```
-    /// use arcella_types::value::{ConfigData, Value};
+    /// use arcella_types::config::{ConfigData, Value};
     /// use indexmap::IndexMap;
     ///
     /// let mut input = IndexMap::new();

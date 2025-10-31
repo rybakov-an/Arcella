@@ -6,9 +6,6 @@
 # except according to those terms.
 [config]
 
-# Base config file
-includes = ["arcella.toml"]
-
 [log]
 
 # Global log level

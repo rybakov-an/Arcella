@@ -152,6 +152,7 @@ dependencies = [
  "arcella-types",
  "dirs",
  "futures",
+ "indexmap",
  "ordered-float",
  "tempfile",
  "thiserror 2.0.17",

@@ -9,43 +9,47 @@
 
 //! TOML parsing and value conversion utilities for Arcella.
 //!
-//! This module provides functions for:
-//! - Converting `toml_edit` values into `arcella_types::Value` for consistent representation.
-//! - Recursively traversing TOML documents to extract configuration values and `includes` paths.
+//! This module provides:
+//! - Safe conversion from `toml_edit::Value` to Arcella’s internal `Value` type.
+//! - Recursive traversal of TOML documents to extract:
+//!   - Configuration key-value pairs (stored with dot-separated paths).
+//!   - File inclusion directives under keys named `includes`.
 //!
-//! The primary entry point for parsing a TOML string and extracting its content is
-//! [`parse_and_collect`]. For more granular control, you can use [`parse`] to get a
-//! `toml_edit::DocumentMut` and then use [`collect_paths`] to extract the data.
+//! The traversal respects a maximum depth limit to prevent stack overflow.
+//! Unsupported TOML types (e.g., datetimes, inline tables) result in an error.
+//!
+//! # Entry Points
+//!
+//! - [`parse_and_collect`] — high-level function for parsing and extracting data.
+//! - [`parse`] + [`collect_paths`] — for more granular control.
 
+use indexmap::IndexMap;
 use ordered_float::OrderedFloat;
-use std::collections::{HashMap};
 use toml_edit::{DocumentMut, Item as TomlEditItem, Value as TomlEditValue};
 
-use arcella_types::value::{
-    TypedError,
-    Value as TomlValue
-};
+use arcella_types::config::{ConfigValues, Value as TomlValue};
 
 use crate::{ArcellaUtilsError, ArcellaResult};
+use crate::types::*;
 
-/// The maximum allowed recursion depth when traversing TOML structures.
-/// This prevents potential stack overflow errors from malformed or deeply nested documents.
-pub const MAX_TOML_DEPTH: usize = 10;
+/// Key name used to identify file inclusion directives in TOML.
+const INCLUDES_KEY: &str = "includes";
 
-/// Extension trait for converting `toml_edit::Value` into `arcella_types::Value`.
+/// Extension trait to convert `toml_edit::Value` into Arcella’s canonical `Value`.
 ///
-/// This allows for a consistent representation of TOML values across Arcella components.
+/// Only TOML scalar types and arrays of scalars are supported.
+/// The following TOML types are **not supported** and will cause an error:
+/// - Datetime
+/// - Inline tables
+///
+/// Arrays are supported recursively, but must contain only supported scalar types.
 pub trait ValueExt {
-    /// Converts a `toml_edit::Value` into a `arcella_types::Value`.
+    /// Converts a `toml_edit::Value` into Arcella’s `Value`.
     ///
-    /// # Arguments
+    /// # Errors
     ///
-    /// * `value` - The `toml_edit::Value` to convert.
-    ///
-    /// # Returns
-    ///
-    /// A `Result` containing the converted `arcella_types::Value` or an error
-    /// if the TOML type is unsupported.
+    /// Returns `ArcellaUtilsError::TOML` if the value contains an unsupported type
+    /// (e.g., datetime, inline table, or nested unsupported structure).
     fn from_toml_value(value: &TomlEditValue) -> ArcellaResult<TomlValue>;
 }
 
@@ -57,11 +61,11 @@ impl ValueExt for TomlValue {
             TomlEditValue::Float(f) => Self::Float(OrderedFloat(*f.value())),
             TomlEditValue::Boolean(b) => Self::Boolean(*b.value()),
             TomlEditValue::Array(array) => {
-                let inner_values: ArcellaResult<Vec<TomlValue>> = array
+                let inner_values: Vec<TomlValue> = array
                     .iter()
                     .map(|v| Self::from_toml_value(v)) 
-                    .collect();
-                Self::Array(inner_values?)
+                    .collect::<ArcellaResult<_>>()?;
+                Self::Array(inner_values)
             },
             _ => { 
                 return Err(ArcellaUtilsError::TOML(
@@ -74,161 +78,169 @@ impl ValueExt for TomlValue {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct TomlFileData {
-    pub includes: Vec<String>,
-    pub values: HashMap<String, TomlValue>,
-}
-
-/// Recursively traverses a TOML item and collects configuration values and `includes` paths.
+/// Recursively traverses a TOML item to collect configuration values and `includes` directives.
 ///
-/// This function walks the TOML structure starting from `item`, accumulating:
-/// - Configuration values (non-`includes`) into the `values` map, keyed by their dot-separated path.
-/// - Paths specified under keys named `includes` into the `includes` vector.
+/// This function walks the TOML structure starting from `item`, building dot-separated
+/// configuration keys from the current path. It handles two special cases:
 ///
-/// The traversal respects a maximum depth (`MAX_TOML_DEPTH`) to prevent infinite recursion in malformed documents.
-/// 
+/// - Keys named [`INCLUDES_KEY`] are treated as file inclusion directives. Their values
+///   may be either a string or an array of strings; all valid string values are added
+///   to the `includes` output vector.
+/// - All other scalar values are converted and stored in `values` with their full path.
+///
+/// Table nesting deeper than [`MAX_TOML_DEPTH`] is pruned (not traversed further),
+/// and the function returns [`TraversalResult::Pruned`].
+///
+/// **Note**: This function does **not** handle `[[array-of-tables]]` constructs.
+/// Items of type `ArrayOfTables` are silently ignored (no error, no warning).
+/// If support is needed, it must be added explicitly.
+///
 /// # Arguments
 ///
-/// * `item` - The TOML item to start traversal from (e.g., a table, array, or value).
-/// * `current_path` - The path to the current item in the TOML document, as a vector of strings.
-/// * `includes` - A mutable reference to a vector where `includes` paths are collected.
-/// * `values` - A mutable reference to a map where configuration key-value pairs are stored.
-///              The key is the dot-separated path (e.g., "arcella.servers.alpha.test_int").
-/// * `depth` - The current recursion depth.
+/// * `item` – The TOML item to traverse (typically a table root).
+/// * `current_path` – The hierarchical path to this item (e.g., `["arcella", "server"]`).
+/// * `file_idx` – A unique index identifying the source file (used for value provenance).
+/// * `includes` – Mutable vector to collect inclusion paths.
+/// * `values` – Mutable map to store configuration key-value pairs.
+/// * `depth` – Current recursion depth (should start at 0).
 ///
 /// # Returns
 ///
-/// A `Result` indicating success or an error if a TOML value type cannot be converted.
+/// * `Ok(TraversalResult::Full)` if the entire subtree was processed.
+/// * `Ok(TraversalResult::Pruned)` if traversal was stopped due to depth limit.
+/// * `Err(...)` if a value could not be converted (e.g., unsupported type).
 pub fn collect_paths_recursive(
     item: &TomlEditItem,
     current_path: &[String],
+    file_idx: usize, 
     includes: &mut Vec<String>,
-    values: &mut HashMap<String, TomlValue>,
+    values: &mut ConfigValues,
     depth: usize,
-) -> ArcellaResult<()> {
+) -> ArcellaResult<TraversalResult> {
     if depth > MAX_TOML_DEPTH {
-        return Ok(());
+        return Ok(TraversalResult::Pruned);
     }
+    let mut result = TraversalResult::Full; 
 
     match item {
         TomlEditItem::Table(table) => {
             for (key, value) in table {
                 let mut key_path = current_path.to_vec();
-                key_path.push(key.into());
+                key_path.push(key.to_string());
 
-                if key == "includes" {
+                if key == INCLUDES_KEY {
+                // Handle both scalar and array forms of 'includes'
                     match value {
-                        TomlEditItem::Value(TomlEditValue::Array(includes_array)) => {
-                            for include in includes_array {
-                                if let Some(str_val) = include.as_str() {
-                                    includes.push(str_val.to_owned());
+                        TomlEditItem::Value(TomlEditValue::Array(arr)) => {
+                            for elem in arr {
+                                if let Some(s) = elem.as_str() {
+                                    includes.push(s.to_owned());
                                 }
                             }
-                        },
+                        }
                         // Also handle a single string value for 'includes'
-                        TomlEditItem::Value(include) => {
-                            if let Some(str_val) = include.as_str() {
-                                includes.push(str_val.to_owned());
+                        TomlEditItem::Value(single) => {
+                            if let Some(s) = single.as_str() {
+                                includes.push(s.to_owned());
                             }
-                        },
+                        }
                         _ => {} 
                     };
                 } else if let TomlEditItem::Value(subvalue) = value {
-                    values.insert(
-                        key_path.join("."), 
-                        TomlValue::from_toml_value(subvalue)?
-                    );
+                    // Scalar value: convert and store with full path
+                    let converted = TomlValue::from_toml_value(subvalue)?;
+                    values.insert(key_path.join("."), (converted, file_idx));
                 } else {
-                    collect_paths_recursive(
+                    // Nested table or other composite item: recurse
+                     let child_result = collect_paths_recursive(
                         value,
                         &key_path,
+                        file_idx,
                         includes,
                         values,
                         depth + 1,
-                    )?;                    
+                    )?;
+                    if child_result == TraversalResult::Pruned {
+                        result = TraversalResult::Pruned;
+                    }
                 }
             }
         },
         _ => {}
     }        
 
-    Ok(())
+    Ok(result)
 }
 
-/// Parses a TOML string into a `toml_edit::DocumentMut`.
+/// Parses a TOML string into a mutable `toml_edit::DocumentMut`.
 ///
-/// This function uses `toml_edit` to parse the input string. If parsing fails,
-/// an `ArcellaUtilsError::TOML` error is returned.
+/// Preserves formatting and comments, which is useful for tooling.
 ///
-/// # Arguments
+/// # Errors
 ///
-/// * `content` - The string content of the TOML file to parse.
-///
-/// # Returns
-///
-/// A `Result` containing the parsed `toml_edit::DocumentMut` or an error.
+/// Returns `ArcellaUtilsError::TOML` if the input is not valid TOML.
 pub fn parse(content: &str) -> ArcellaResult<DocumentMut> {
-    content.parse::<DocumentMut>()
+    content
+        .parse::<DocumentMut>()
         .map_err(|e| ArcellaUtilsError::TOML(format!("{}", e)))
 }
 
-/// Collects configuration values and `includes` paths from a parsed `toml_edit::DocumentMut`.
+/// Extracts configuration data from a parsed TOML document.
 ///
-/// This function traverses the document starting from the root item and extracts:
-/// - Configuration key-value pairs into a `HashMap` with dot-separated keys.
-/// - File paths specified under `includes` keys into a `Vec<String>`.
-///
-/// It uses `collect_paths_recursive` internally.
+/// Traverses the document root and collects:
+/// - All scalar values (with dot-separated keys prefixed by `prefix`).
+/// - All `includes` directives (as raw strings).
 ///
 /// # Arguments
 ///
-/// * `doc` - A reference to the parsed `toml_edit::DocumentMut`.
-/// * `prefix` - A slice of strings representing the prefix to use for the keys in the returned `values` map.
+/// * `doc` – Parsed TOML document.
+/// * `prefix` – Path prefix for all collected keys (e.g., `["arcella"]`).
+/// * `file_idx` – Unique identifier for the source file (for provenance tracking).
 ///
 /// # Returns
 ///
-/// A `Result` containing a `TomlFileData` struct with the collected `includes` and `values`.
+/// A tuple of:
+/// - [`TomlFileData`] containing `includes` and `values`.
+/// - [`TraversalResult`] indicating whether traversal was complete or pruned.
 pub fn collect_paths(
     doc: &DocumentMut, 
-    prefix: &[String]
-) -> ArcellaResult<TomlFileData> {
-    let mut values: HashMap<String, TomlValue> = HashMap::new();
-    let mut includes: Vec<String> = vec![];
-    let depth = 0;
-
-    collect_paths_recursive(
+    prefix: &[String],
+    file_idx: usize,
+) -> ArcellaResult<(TomlFileData, TraversalResult)> {
+    let mut values: ConfigValues = IndexMap::new();
+    let mut includes: Vec<String> = Vec::new();
+    let result = collect_paths_recursive(
         doc.as_item(),
         prefix,
+        file_idx,
         &mut includes,
         &mut values,
-        depth,
+        0,
     )?;
 
-    Ok(TomlFileData{includes, values})
+    Ok((TomlFileData{includes, values}, result))
 }
 
-/// Parses a TOML file content and collects configuration values and `includes` paths.
-/// 
-/// This is a convenience function that combines [`parse`] and [`collect_paths`].
-/// It is used for parsing the main `arcella.toml` as well as any included files.
-/// 
+/// Parses TOML content and extracts configuration data in one step.
+///
+/// This is the primary entry point for loading a single configuration file.
+///
 /// # Arguments
-/// 
-/// * `content` - The string content of the TOML file.
-/// * `prefix` - The prefix to use for the keys in the returned `values` map.
-/// 
+///
+/// * `content` – Raw TOML content as a string.
+/// * `prefix` – Key prefix for namespacing (e.g., to avoid collisions between files).
+/// * `file_idx` – Unique index of the file in the loading sequence.
+///
 /// # Returns
-/// 
-/// A `Result` containing a `TomlFileData` struct with:
-/// - `includes`: A `Vec<String>` of paths found under `includes` keys.
-/// - `values`: A `HashMap<String, TomlValue>` of configuration key-value pairs.
+///
+/// Same as [`collect_paths`]: a `TomlFileData` and traversal result.
 pub fn parse_and_collect(
     content: &str,
     prefix: &[String],
-) -> ArcellaResult<TomlFileData> {
+    file_idx: usize,
+) -> ArcellaResult<(TomlFileData, TraversalResult)> {
     let doc = parse(content)?;
-    collect_paths(&doc, prefix)
+    collect_paths(&doc, prefix, file_idx)
 }
 
 #[cfg(test)]
@@ -252,12 +264,13 @@ mod tests {
 
         let main_doc = config_content.parse::<DocumentMut>().unwrap();
 
-        let mut values: HashMap<String, TomlValue> = HashMap::new();
+        let mut values: ConfigValues = IndexMap::new();
         let mut includes: Vec<String> = vec![];
 
         let result = collect_paths_recursive(
             main_doc.as_item(),
-            &["arcella".into()],
+            &vec!["arcella".to_string()],
+            0,
             &mut includes,
             &mut values,
             depth,
@@ -267,10 +280,10 @@ mod tests {
         let expected_includes = vec!["*".to_string(), "test_1.toml".to_string(), "test_2.toml".to_string()];
         assert_eq!(includes, expected_includes);
 
-        let mut expected_values = std::collections::HashMap::new();
-        expected_values.insert("arcella.servers.alpha.test_string".to_string(), TomlValue::String("string".to_string()));
-        expected_values.insert("arcella.servers.alpha.test_int".to_string(), TomlValue::Integer(10));
-        expected_values.insert("arcella.servers.alpha.test_bool".to_string(), TomlValue::Boolean(true));
+        let mut expected_values: ConfigValues = IndexMap::new();
+        expected_values.insert("arcella.servers.alpha.test_string".to_string(), (TomlValue::String("string".to_string()), 0));
+        expected_values.insert("arcella.servers.alpha.test_int".to_string(), (TomlValue::Integer(10), 0));
+        expected_values.insert("arcella.servers.alpha.test_bool".to_string(), (TomlValue::Boolean(true), 0));
 
         assert_eq!(values, expected_values);        
 
@@ -291,21 +304,22 @@ mod tests {
 
             let config = parse_and_collect(
                 config_content,
-                &["root".into()]
+                &vec!["root".to_string()],
+                0,
             ).unwrap();
 
             let expected_includes = vec!["config.d/*.toml".to_string()];
 
-            let mut expected_values = std::collections::HashMap::new();
-            expected_values.insert("root.server.port".to_string(), TomlValue::Integer(8080));
-            expected_values.insert("root.server.host".to_string(), TomlValue::String("localhost".to_string()));
+            let mut expected_values: ConfigValues = IndexMap::new();
+            expected_values.insert("root.server.port".to_string(), (TomlValue::Integer(8080), 0));
+            expected_values.insert("root.server.host".to_string(), (TomlValue::String("localhost".to_string()), 0));
 
             let expected_config = TomlFileData{
                 includes: expected_includes,
                 values: expected_values
             };
 
-            assert_eq!(config, expected_config);
+            assert_eq!(config, (expected_config, TraversalResult::Full));
         }
 
         #[tokio::test]
@@ -325,24 +339,25 @@ mod tests {
 
             let config = parse_and_collect(
                 config_content,
-                &[]
+                &vec![],
+                0,
             ).unwrap();
 
             let expected_includes = Vec::new();
 
-            let mut expected_values = std::collections::HashMap::new();
-            expected_values.insert("database.host".to_string(), TomlValue::String("db.example.com".to_string()));
-            expected_values.insert("database.port".to_string(), TomlValue::Integer(5432));
-            expected_values.insert("database.pool.max_connections".to_string(), TomlValue::Integer(10));
-            expected_values.insert("database.pool.timeout".to_string(), TomlValue::Float(OrderedFloat(30.5)));
-            expected_values.insert("logging.level".to_string(), TomlValue::String("info".to_string()));
+            let mut expected_values: ConfigValues = IndexMap::new();
+            expected_values.insert("database.host".to_string(), (TomlValue::String("db.example.com".to_string()), 0));
+            expected_values.insert("database.port".to_string(), (TomlValue::Integer(5432), 0));
+            expected_values.insert("database.pool.max_connections".to_string(), (TomlValue::Integer(10), 0));
+            expected_values.insert("database.pool.timeout".to_string(), (TomlValue::Float(OrderedFloat(30.5)), 0));
+            expected_values.insert("logging.level".to_string(), (TomlValue::String("info".to_string()), 0));
 
             let expected_config = TomlFileData{
                 includes: expected_includes,
                 values: expected_values
             };
 
-            assert_eq!(config, expected_config);
+            assert_eq!(config, (expected_config, TraversalResult::Full));
         }
 
         #[tokio::test]
@@ -356,20 +371,21 @@ mod tests {
 
             let config = parse_and_collect(
                 config_content,
-                &["config".into()]
+                &vec!["config".to_string()],
+                0
             ).unwrap();
 
             let expected_includes = vec!["overrides.toml".to_string()];
 
-            let mut expected_values = std::collections::HashMap::new();
-            expected_values.insert("config.app.name".to_string(), TomlValue::String("my_app".to_string()));
+            let mut expected_values: ConfigValues = IndexMap::new();
+            expected_values.insert("config.app.name".to_string(), (TomlValue::String("my_app".to_string()), 0));
 
             let expected_config = TomlFileData{
                 includes: expected_includes,
                 values: expected_values
             };
 
-            assert_eq!(config, expected_config);
+            assert_eq!(config, (expected_config, TraversalResult::Full));
         }
 
         #[tokio::test]
@@ -383,7 +399,8 @@ mod tests {
 
             let config = parse_and_collect(
                 config_content,
-                &["app".into()]
+                &vec!["app".to_string()],
+                0,
             ).unwrap();
 
             let expected_includes = vec![
@@ -392,15 +409,15 @@ mod tests {
                 "secrets.toml".to_string(),
             ];
 
-            let mut expected_values = std::collections::HashMap::new();
-            expected_values.insert("app.app.version".to_string(), TomlValue::String("1.0.0".to_string()));
+            let mut expected_values: ConfigValues = IndexMap::new();
+            expected_values.insert("app.app.version".to_string(), (TomlValue::String("1.0.0".to_string()), 0));
 
             let expected_config = TomlFileData{
                 includes: expected_includes,
                 values: expected_values
             };
 
-            assert_eq!(config, expected_config);
+            assert_eq!(config, (expected_config, TraversalResult::Full));
        }
 
         #[tokio::test]
@@ -409,18 +426,19 @@ mod tests {
 
             let config = parse_and_collect(
                 config_content,
-                &[]
+                &vec![],
+                0,
             ).unwrap();
 
             let expected_includes = Vec::new();
-            let expected_values = HashMap::new();
+            let expected_values = IndexMap::new();
 
             let expected_config = TomlFileData{
                 includes: expected_includes,
                 values: expected_values
             };
 
-            assert_eq!(config, expected_config);
+            assert_eq!(config, (expected_config, TraversalResult::Full));
         }
 
         #[tokio::test]
@@ -431,18 +449,19 @@ mod tests {
 
             let config = parse_and_collect(
                 config_content,
-                &["top".into()]
+                &vec!["top".to_string()],
+                0,
             ).unwrap();
 
             let expected_includes = vec!["a.toml".to_string(), "b.toml".to_string()];
-            let expected_values = HashMap::new();
+            let expected_values = IndexMap::new();
 
             let expected_config = TomlFileData{
                 includes: expected_includes,
                 values: expected_values
             };
 
-            assert_eq!(config, expected_config);
+            assert_eq!(config, (expected_config, TraversalResult::Full));
         }
 
         #[tokio::test]
@@ -454,7 +473,8 @@ mod tests {
 
             let result = parse_and_collect(
                 config_content,
-                &[]
+                &vec![],
+                0,
             );
 
             assert!(result.is_err());
@@ -480,31 +500,32 @@ mod tests {
 
             let config = parse_and_collect(
                 config_content,
-                &[]
+                &vec![],
+                0,
             ).unwrap();
 
             let expected_includes = Vec::new();
 
-            let mut expected_values = std::collections::HashMap::new();
-            expected_values.insert("features.enabled".to_string(), TomlValue::Boolean(true));
-            expected_values.insert("features.disabled".to_string(), TomlValue::Boolean(false));
-            expected_values.insert("features.flags.list".to_string(), TomlValue::Array(vec![
+            let mut expected_values: ConfigValues = IndexMap::new();
+            expected_values.insert("features.enabled".to_string(), (TomlValue::Boolean(true), 0));
+            expected_values.insert("features.disabled".to_string(), (TomlValue::Boolean(false), 0));
+            expected_values.insert("features.flags.list".to_string(), (TomlValue::Array(vec![
                 TomlValue::String("flag1".to_string()),
                 TomlValue::String("flag2".to_string()),
                 TomlValue::String("flag3".to_string()),
-            ]));
-            expected_values.insert("server.ports".to_string(), TomlValue::Array(vec![
+            ]), 0));
+            expected_values.insert("server.ports".to_string(), (TomlValue::Array(vec![
                 TomlValue::Integer(80),
                 TomlValue::Integer(443),
                 TomlValue::Integer(8080),
-            ]));
+            ]), 0));
 
             let expected_config = TomlFileData{
                 includes: expected_includes,
                 values: expected_values
             };
 
-            assert_eq!(config, expected_config);
+            assert_eq!(config, (expected_config, TraversalResult::Full));
         }        
 
     }    
