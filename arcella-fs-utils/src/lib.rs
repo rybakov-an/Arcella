@@ -77,37 +77,6 @@ pub async fn find_base_dir() -> ArcellaResult<PathBuf> {
         .ok_or_else(|| ArcellaUtilsError::Internal("Cannot determine home directory".into()))
 }
 
-/// Resolves a list of include patterns into absolute file paths.
-///
-/// Relative paths in the `includes` list are resolved relative to the `parent_dir`.
-/// Absolute paths are kept as is.
-///
-/// # Arguments
-///
-/// * `includes` - A vector of string patterns representing file or directory paths.
-/// * `parent_dir` - The base directory to resolve relative paths against.
-///
-/// # Returns
-///
-/// A `Result` containing a `HashSet` of resolved `PathBuf`s or an error.
-pub fn resolve_include_paths(
-    includes: &[String],
-    parent_dir: &Path
-) -> ArcellaResult<HashSet<PathBuf>> {
-    let mut all_paths = HashSet::new();
-    for include_pattern in includes {
-        let pattern_path = PathBuf::from(include_pattern);
-        if pattern_path.is_absolute() {
-            // If the path is absolute, leave it as is.
-            all_paths.insert(pattern_path);
-        } else {
-            // If relative, make it relative to config_dir
-            all_paths.insert(parent_dir.join(include_pattern));
-        }
-    }
-    Ok(all_paths)
-}
-
 /// Checks if a path represents a regular file with a `.toml` extension
 /// but *not* a `.template.toml` extension.
 ///

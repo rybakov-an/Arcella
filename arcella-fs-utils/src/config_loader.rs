@@ -37,7 +37,8 @@
 //! it is **silently skipped** and a `SkippedInvalidFile` warning is recorded.
 //! This allows optional configuration files (e.g., `local.toml`) to be absent without causing an error.
 
-use std::path::Path;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 use crate::collect_toml_includes;
 use crate::ConfigLoadWarning; 
@@ -57,6 +58,38 @@ use arcella_types::config::Value as TomlValue;
 /// `root.toml → a.toml → b.toml → c.toml → d.toml → e.toml` (6 files total).
 /// Attempting to include a 7th file will trigger a `MaxDepthReached` warning and skip loading.
 const MAX_CONFIG_DEPTH: usize = 5;
+
+/// Resolves a list of include patterns into absolute file paths.
+///
+/// Relative paths in the `includes` list are resolved relative to the `parent_dir`.
+/// Absolute paths are kept as is.
+///
+/// # Arguments
+///
+/// * `includes` - A vector of string patterns representing file or directory paths.
+/// * `parent_dir` - The base directory to resolve relative paths against.
+///
+/// # Returns
+///
+/// A `Result` containing a `HashSet` of resolved `PathBuf`s or an error.
+pub fn resolve_include_paths(
+    includes: &[String],
+    parent_dir: &Path
+) -> ArcellaUtilsResult<HashSet<PathBuf>> {
+    let mut all_paths = HashSet::new();
+    for include_pattern in includes {
+        let pattern_path = PathBuf::from(include_pattern);
+        if pattern_path.is_absolute() {
+            // If the path is absolute, leave it as is.
+            all_paths.insert(pattern_path);
+        } else {
+            // If relative, make it relative to config_dir
+            all_paths.insert(parent_dir.join(include_pattern));
+        }
+    }
+    Ok(all_paths)
+}
+
 
 /// Recursively loads configuration files starting from `config_file_path`, including files specified in `includes`.
 ///
