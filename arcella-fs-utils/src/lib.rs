@@ -42,7 +42,7 @@ pub use warnings::*;
 /// Determines the base directory for Arcella based on the executable location or environment.
 ///
 /// The function follows this priority order:
-/// 1. If the executable is located in a `bin` subdirectory, the parent of `bin` is used.
+/// 1. If the executable is located in a `bin` subdirectory, the parent of `bin` is use, but no `/`
 /// 2. If the current directory (where the executable is run from) contains a `config` subdirectory,
 ///    the current directory is used.
 /// 3. Otherwise, the user's home directory joined with `.arcella` is used.
@@ -57,7 +57,9 @@ pub async fn find_base_dir() -> ArcellaResult<PathBuf> {
             // Case 1: executable is in a `bin` directory
             if parent.file_name() == Some(std::ffi::OsStr::new("bin")) {
                 if let Some(grandparent) = parent.parent() {
-                    return Ok(grandparent.to_path_buf());
+                    if grandparent != Path::new("/") {
+                        return Ok(grandparent.to_path_buf());
+                    }
                 }
                 // If `/bin/app`, grandparent is root — still valid
                 // But if somehow `bin` is root (shouldn't happen), fall through
@@ -97,21 +99,33 @@ pub async fn find_base_dir() -> ArcellaResult<PathBuf> {
 /// `true` if the path is a valid TOML file according to the criteria, `false` otherwise.
 pub fn is_valid_toml_file_path(path: &Path) -> bool {
 
-    // 1. Get the file name as a string (return false if missing)
+    // 1. Get the file name if it exists
     let file_name = match path.file_name() {
-        Some(name) => name.to_string_lossy(),
+        Some(name) => name,
         None => return false,
     };
 
-    let file_name_lower = file_name.to_lowercase();
+    // 2. Convert to string, but only if it's valid UTF-8 and ASCII
+    let file_name = match file_name.to_str() {
+        Some(s) if s.is_ascii() => s,
+        _ => return false, // Reject non-UTF8 or non-ASCII names
+    };
 
-    // 2. Must end with ".toml"
-    if !file_name_lower.ends_with(".toml") {
+    // 3. Defensive: reject names containing ".."
+    if file_name.contains("..") {
+        return false;
+    }    
+
+    // 4. Case-insensitive ASCII check for extensions
+    let lower = file_name.to_ascii_lowercase();
+
+    // 5. Must end with ".toml"
+    if !lower.ends_with(".toml") {
         return false;
     }
 
-    // 3. Must NOT end with ".template.toml"
-    if file_name_lower.ends_with(TEMPLATE_TOML_SUFFIX) {
+    // 6. Must NOT end with ".template.toml"
+    if lower.ends_with(TEMPLATE_TOML_SUFFIX) {
         return false;
     }
 
