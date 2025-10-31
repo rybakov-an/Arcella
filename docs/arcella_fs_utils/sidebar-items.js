@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["collect_toml_includes","find_base_dir","find_toml_files_in_dir","is_valid_toml_file_path","resolve_include_paths"],"mod":["config_loader","error","toml","warnings"]};
+window.SIDEBAR_ITEMS = {"fn":["collect_toml_includes","find_base_dir","find_toml_files_in_dir","is_valid_toml_file_path"],"mod":["config_loader","error","toml","types","warnings"]};

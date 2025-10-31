@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["MAX_TOML_DEPTH"],"fn":["collect_paths","collect_paths_recursive","parse","parse_and_collect"],"struct":["TomlFileData"],"trait":["ValueExt"]};
+window.SIDEBAR_ITEMS = {"fn":["collect_paths","collect_paths_recursive","parse","parse_and_collect"],"trait":["ValueExt"]};
