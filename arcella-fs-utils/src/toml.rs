@@ -46,7 +46,7 @@ use toml_edit::{ArrayOfTables, DocumentMut, InlineTable, Item as TomlEditItem, T
 
 use arcella_types::config::{ConfigValues, Value as TomlValue};
 
-use crate::{ArcellaUtilsError, ArcellaResult};
+use crate::error::{ArcellaUtilsError, Result as ArcellaUtilsResult};
 use crate::types::*;
 
 /// Key name used to identify file inclusion directives in TOML.
@@ -67,11 +67,11 @@ pub trait ValueExt {
     ///
     /// Returns `ArcellaUtilsError::TOML` if the value contains an unsupported type
     /// (e.g., datetime or nested unsupported structure).
-    fn from_toml_value(value: &TomlEditValue) -> ArcellaResult<TomlValue>;
+    fn from_toml_value(value: &TomlEditValue) -> ArcellaUtilsResult<TomlValue>;
 }
 
 impl ValueExt for TomlValue {
-    fn from_toml_value(value: &TomlEditValue) -> ArcellaResult<TomlValue> {
+    fn from_toml_value(value: &TomlEditValue) -> ArcellaUtilsResult<TomlValue> {
         let result = match value {
             TomlEditValue::String(s) => Self::String(s.value().into()),
             TomlEditValue::Integer(i) => Self::Integer(*i.value()),
@@ -81,7 +81,7 @@ impl ValueExt for TomlValue {
                 let inner_values: Vec<TomlValue> = array
                     .iter()
                     .map(|v| Self::from_toml_value(v)) 
-                    .collect::<ArcellaResult<_>>()?;
+                    .collect::<ArcellaUtilsResult<_>>()?;
                 Self::Array(inner_values)
             },
             _ => { 
@@ -118,7 +118,7 @@ fn convert_array_of_tables_to_value(
     depth: usize,
     file_idx: usize,
     includes: &mut Vec<String>,
-) -> ArcellaResult<(TomlValue, TraversalResult)> {
+) -> ArcellaUtilsResult<(TomlValue, TraversalResult)> {
     if depth > MAX_TOML_DEPTH {
         return Ok((TomlValue::Array(Vec::new()), TraversalResult::Pruned));
     }
@@ -171,7 +171,7 @@ fn table_to_value_map_recursive(
     includes: &mut Vec<String>,
     values: &mut ConfigValues,
     depth: usize,
-) -> ArcellaResult<TraversalResult> {
+) -> ArcellaUtilsResult<TraversalResult> {
     if depth > MAX_TOML_DEPTH {
         return Ok(TraversalResult::Pruned);
     }
@@ -275,7 +275,7 @@ pub fn collect_paths_recursive(
     includes: &mut Vec<String>,
     values: &mut ConfigValues,
     depth: usize,
-) -> ArcellaResult<TraversalResult> {
+) -> ArcellaUtilsResult<TraversalResult> {
     if depth > MAX_TOML_DEPTH {
         return Ok(TraversalResult::Pruned);
     }
@@ -332,7 +332,7 @@ pub fn collect_paths_recursive(
 /// # Errors
 ///
 /// Returns `ArcellaUtilsError::TOML` if the input is not valid TOML.
-pub fn parse(content: &str) -> ArcellaResult<DocumentMut> {
+pub fn parse(content: &str) -> ArcellaUtilsResult<DocumentMut> {
     content
         .parse::<DocumentMut>()
         .map_err(|e| ArcellaUtilsError::TOML(format!("{}", e)))
@@ -359,7 +359,7 @@ pub fn collect_paths(
     doc: &DocumentMut, 
     prefix: &[String],
     file_idx: usize,
-) -> ArcellaResult<(TomlFileData, TraversalResult)> {
+) -> ArcellaUtilsResult<(TomlFileData, TraversalResult)> {
     let mut values: ConfigValues = IndexMap::new();
     let mut includes: Vec<String> = Vec::new();
     let result = collect_paths_recursive(
@@ -391,7 +391,7 @@ pub fn parse_and_collect(
     content: &str,
     prefix: &[String],
     file_idx: usize,
-) -> ArcellaResult<(TomlFileData, TraversalResult)> {
+) -> ArcellaUtilsResult<(TomlFileData, TraversalResult)> {
     let doc = parse(content)?;
     collect_paths(&doc, prefix, file_idx)
 }
@@ -751,6 +751,7 @@ mod tests {
         fn test_max_toml_depth_pruned_inline_table() {
             const MAX_DEPTH: usize = crate::types::MAX_TOML_DEPTH; // 10
             const START_IDX: usize = 40;
+            const FILIE_IDX: usize = 12;
 
             // Создаём inline-таблицу на глубине MAX_DEPTH + 1
             // Create inline-table with depth up to MAX_DEPTH + 1
@@ -760,7 +761,7 @@ mod tests {
             }
             let content = format!("[top]\n{}", inner);
 
-            let (config, traversal_result) = parse_and_collect(&content, &[], 12).unwrap();
+            let (config, traversal_result) = parse_and_collect(&content, &[], FILIE_IDX).unwrap();
 
             // Result must checked as Pruned
             assert_eq!(traversal_result, TraversalResult::Pruned);
@@ -776,7 +777,7 @@ mod tests {
                         panic!("Error values!")
                     }
                 }
-                assert_eq!(*idx, 12);
+                assert_eq!(*idx, FILIE_IDX);
             }
 
         }

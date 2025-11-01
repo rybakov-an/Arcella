@@ -37,8 +37,7 @@
 //! it is **silently skipped** and a `SkippedInvalidFile` warning is recorded.
 //! This allows optional configuration files (e.g., `local.toml`) to be absent without causing an error.
 
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 
 use crate::collect_toml_includes;
 use crate::ConfigLoadWarning; 
@@ -58,38 +57,6 @@ use arcella_types::config::Value as TomlValue;
 /// `root.toml → a.toml → b.toml → c.toml → d.toml → e.toml` (6 files total).
 /// Attempting to include a 7th file will trigger a `MaxDepthReached` warning and skip loading.
 const MAX_CONFIG_DEPTH: usize = 5;
-
-/// Resolves a list of include patterns into absolute file paths.
-///
-/// Relative paths in the `includes` list are resolved relative to the `parent_dir`.
-/// Absolute paths are kept as is.
-///
-/// # Arguments
-///
-/// * `includes` - A vector of string patterns representing file or directory paths.
-/// * `parent_dir` - The base directory to resolve relative paths against.
-///
-/// # Returns
-///
-/// A `Result` containing a `HashSet` of resolved `PathBuf`s or an error.
-pub fn resolve_include_paths(
-    includes: &[String],
-    parent_dir: &Path
-) -> ArcellaUtilsResult<HashSet<PathBuf>> {
-    let mut all_paths = HashSet::new();
-    for include_pattern in includes {
-        let pattern_path = PathBuf::from(include_pattern);
-        if pattern_path.is_absolute() {
-            // If the path is absolute, leave it as is.
-            all_paths.insert(pattern_path);
-        } else {
-            // If relative, make it relative to config_dir
-            all_paths.insert(parent_dir.join(include_pattern));
-        }
-    }
-    Ok(all_paths)
-}
-
 
 /// Recursively loads configuration files starting from `config_file_path`, including files specified in `includes`.
 ///
@@ -529,42 +496,4 @@ mod tests {
         assert_eq!(sub_config.values.get("arcella.logging.level").unwrap().0, TomlValue::String("info".to_string()));
     }
 
-    // Additional test for the convenience function's return tuple structure
-    #[tokio::test]
-    async fn test_load_config_recursive_from_file_return_type() {
-        let temp_dir = TempDir::new().unwrap();
-        let config_dir = temp_dir.path();
-        let mut state  = ConfigLoadState {
-            config_files: IndexSet::new(),
-            visited_paths: HashSet::new(),
-            warnings: Vec::new(),
-        };
-
-        let main_config_path = config_dir.join("main.toml");
-        let main_config_content = r#"
-            [server]
-            port = 8080
-        "#;
-        fs::write(&main_config_path, main_config_content).unwrap();
-
-        let params = ConfigLoadParams {
-            prefix: vec!["arcella".to_string()],
-            config_dir: config_dir.to_path_buf(),
-        };
-
-        let configs = load_config_recursive_from_file(
-            &params,
-            &mut state,
-            &main_config_path,
-        ).await;
-
-        assert!(configs.is_ok());
-
-        let configs = configs.unwrap();
-        assert_eq!(configs.len(), 1);
-        assert!(state.warnings.is_empty());
-
-        // Check the type of the return value
-        let _: (Vec<TomlFileData>, Vec<ConfigLoadWarning>) = (configs, state.warnings);
-    }
 }

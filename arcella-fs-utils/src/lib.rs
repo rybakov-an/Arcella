@@ -29,7 +29,7 @@ pub mod config_loader;
 pub use config_loader::*;
 
 pub mod error;
-use crate::error::{ArcellaUtilsError, Result as ArcellaResult};
+use crate::error::{ArcellaUtilsError, Result as ArcellaUtilsResult};
 
 pub mod toml;
 
@@ -42,7 +42,8 @@ pub use warnings::*;
 /// Determines the base directory for Arcella based on the executable location or environment.
 ///
 /// The function follows this priority order:
-/// 1. If the executable is located in a `bin` subdirectory, the parent of `bin` is use, but no `/`
+/// 1. If the executable is located in a `bin` subdirectory and if parent of `bin` is not root
+///    directory, the parent of `bin` is use. 
 /// 2. If the current directory (where the executable is run from) contains a `config` subdirectory,
 ///    the current directory is used.
 /// 3. Otherwise, the user's home directory joined with `.arcella` is used.
@@ -51,24 +52,25 @@ pub use warnings::*;
 ///
 /// A `Result` containing the determined `PathBuf` or an error if the home directory
 /// cannot be determined.
-pub async fn find_base_dir() -> ArcellaResult<PathBuf> {
+pub async fn find_base_dir() -> ArcellaUtilsResult<PathBuf> {
     if let Ok(current_exe) = env::current_exe() {
         if let Some(parent) = current_exe.parent() {
             // Case 1: executable is in a `bin` directory
             if parent.file_name() == Some(std::ffi::OsStr::new("bin")) {
                 if let Some(grandparent) = parent.parent() {
-                    if grandparent != Path::new("/") {
+                    // Avoid using root directory (e.g., /bin → /) as base dir
+                    if grandparent.parent().is_some() {
                         return Ok(grandparent.to_path_buf());
                     }
                 }
-                // If `/bin/app`, grandparent is root — still valid
-                // But if somehow `bin` is root (shouldn't happen), fall through
             }
 
             // Case 2: check if current_exe's parent has a `config` dir
             let local_config = parent.join("config");
-            if local_config.is_dir() {
-                return Ok(parent.to_path_buf());
+            if let Ok(metadata) = fs::metadata(&local_config).await {
+                if metadata.is_dir() {
+                    return Ok(parent.to_path_buf());
+                }
             }
         }
     }
@@ -107,6 +109,7 @@ pub fn is_valid_toml_file_path(path: &Path) -> bool {
 
     // 2. Convert to string, but only if it's valid UTF-8 and ASCII
     let file_name = match file_name.to_str() {
+        // TODO: In future, we might want to allow non-ASCII names
         Some(s) if s.is_ascii() => s,
         _ => return false, // Reject non-UTF8 or non-ASCII names
     };
@@ -149,7 +152,7 @@ pub fn is_valid_toml_file_path(path: &Path) -> bool {
 /// - `Ok(Some(Vec<PathBuf>))` with a sorted list of valid `.toml` file paths if the path exists and is a directory.
 /// - `Ok(None)` if the path exists but is not a directory.
 /// - `Err(ArcellaUtilsError)` if an I/O error occurs while accessing the path.
-pub async fn find_toml_files_in_dir(dir_path: &Path) -> ArcellaResult<Option<Vec<PathBuf>>> {
+pub async fn find_toml_files_in_dir(dir_path: &Path) -> ArcellaUtilsResult<Option<Vec<PathBuf>>> {
     // Check that the path exists and is a directory
     let metadata = fs::metadata(dir_path).await
         .map_err(|e| ArcellaUtilsError::IoWithPath { source: e, path: dir_path.to_path_buf() })?;
@@ -177,15 +180,27 @@ pub async fn find_toml_files_in_dir(dir_path: &Path) -> ArcellaResult<Option<Vec
         }
     }
 
-    // Sort the files by name without case sensitivity
-    toml_files.sort_by_key(|path| {
-        path.file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_lowercase()
-    });
+    // Sort using only paths that have valid file names.
+    // Since `is_valid_toml_file_path` already ensures `file_name()` is `Some`,
+    // we can safely use `filter_map` here — but keep it defensive.
+    let mut toml_files_with_names: Vec<_> = toml_files
+        .into_iter()
+        .filter_map(|path| {
+            path.file_name().map(|name| {
+                // We know from `is_valid_toml_file_path` that this is ASCII UTF-8,
+                // so `to_string_lossy().to_ascii_lowercase()` is safe and consistent.
+                (path.clone(), name.to_string_lossy().to_ascii_lowercase())
+            })
+        })
+        .collect();
 
-    Ok(Some(toml_files))
+    // Sort by normalized file name
+    toml_files_with_names.sort_by(|(_, name_a), (_, name_b)| name_a.cmp(name_b));
+
+    // Extract just the paths
+    let sorted_paths: Vec<PathBuf> = toml_files_with_names.into_iter().map(|(path, _)| path).collect();    
+
+    Ok(Some(sorted_paths))
 }
 
 /// Collects all `.toml` files specified by `includes` patterns relative to a base directory.
@@ -198,7 +213,8 @@ pub async fn find_toml_files_in_dir(dir_path: &Path) -> ArcellaResult<Option<Vec
 /// 5. For each resolved directory, finds all valid `.toml` files directly within it (non-recursive).
 /// 6. Returns a sorted vector of unique file paths.
 ///
-/// If a resolved path in `includes` does not exist (neither file nor directory), an error is returned.
+/// If a resolved path in `includes` does not exist (neither file nor directory),
+/// a `ConfigLoadWarning::SkippedInvalidFile` is added to the `warnings` vector.
 /// Duplicate paths (e.g., from overlapping patterns) are removed.
 ///
 /// # Arguments
@@ -209,13 +225,16 @@ pub async fn find_toml_files_in_dir(dir_path: &Path) -> ArcellaResult<Option<Vec
 /// # Returns
 ///
 /// A `Result` containing a sorted vector of unique `PathBuf`s pointing to valid `.toml` files,
-/// or an error if an I/O issue occurs during directory scanning or if a path in `includes` does not exist.
+/// or an error if an I/O issue occurs during directory scanning.
+/// Note: Non-existent paths in `includes` do not cause an error but generate a warning added to `warnings`.
 pub async fn collect_toml_includes(
     includes: &[String],
     config_dir: &Path,
     warnings: &mut Vec<ConfigLoadWarning>,
-) -> ArcellaResult<Vec<PathBuf>> {
-    let all_paths = resolve_include_paths(includes, config_dir)?;
+) -> ArcellaUtilsResult<Vec<PathBuf>> {
+    let all_paths: HashSet<PathBuf> = includes.iter().map(|include_pattern| {
+        config_dir.join(include_pattern)
+    }).collect();
 
     // Concurrently check the metadata for all resolved paths
     let metadata_futures: Vec<_> = all_paths
