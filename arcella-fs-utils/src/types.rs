@@ -24,18 +24,33 @@ pub const MAX_TOML_DEPTH: usize = 10;
 /// Template file suffix
 pub const TEMPLATE_TOML_SUFFIX: &str = ".template.toml";
 
-// Неизменяемые параметры — можно клонировать свободно
+// Immutable parameters — can be freely cloned
 #[derive(Debug, Clone)]
 pub struct ConfigLoadParams {
     pub prefix: Vec<String>,
     pub config_dir: PathBuf,
 }
 
-// Изменяемое состояние — передаётся по &mut
+// Mutable state — passed by &mut reference
 pub struct ConfigLoadState {
+    /// All configuration files that have been successfully loaded, in order of inclusion.
     pub config_files: IndexSet<PathBuf>,
+
+    /// Tracks files currently in the inclusion stack to detect cyclic includes.
     pub visited_paths: HashSet<PathBuf>,
+
+    /// Non-fatal warnings collected during loading.
     pub warnings: Vec<ConfigLoadWarning>,
+}
+
+impl Default for ConfigLoadState {
+    fn default() -> Self {
+        Self {
+            config_files: IndexSet::new(),
+            visited_paths: HashSet::new(),
+            warnings: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

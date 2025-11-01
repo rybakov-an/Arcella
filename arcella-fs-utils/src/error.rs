@@ -10,10 +10,10 @@
 use std::path::PathBuf;
 use thiserror::Error;
 
-/// Result type alias for `arcella-wasmtime` operations.
+/// Result type alias for `arcella-fs-utils` operations.
 pub type Result<T> = std::result::Result<T, ArcellaUtilsError>;
 
-/// Errors that can occur during Wasmtime-to-Arcella conversion.
+/// Errors that can occur during filesystem and configuration operations.
 #[derive(Error, Debug)]
 pub enum ArcellaUtilsError {
     /// General-purpose error for unexpected conditions.
@@ -40,4 +40,14 @@ pub enum ArcellaUtilsError {
     /// TOML error
     #[error("TOML error: {0}")]
     TOML(String),
+}
+
+impl ArcellaUtilsError {
+    /// Creates an `IoWithPath` error from a path and an I/O error.
+    pub fn io_with_path<E: Into<std::io::Error>>(path: PathBuf, source: E) -> Self {
+        Self::IoWithPath {
+            source: source.into(),
+            path,
+        }
+    }
 }
